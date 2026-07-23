@@ -2,8 +2,10 @@ import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlmodel import Session, select, col
 from typing import List
 
@@ -12,6 +14,8 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from config import REFRESH_INTERVAL_HOURS
 from database import init_db, get_session, AzurePriceCache
 from updater import fetch_and_cache_azure_prices
+from schemas import CostEstimateRequest, CostEstimateResponse
+from calculator import calculate_all_scenarios
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -87,6 +91,30 @@ app.add_middleware(
 
 
 # ---------------------------------------------------------------------------
+# Custom validation error handler (matches docs/API_CONTRACT.md error shape)
+# ---------------------------------------------------------------------------
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Convert Pydantic validation errors into the stable API contract error format."""
+    field_errors = {}
+    for error in exc.errors():
+        # Build dotted field path, skipping the leading "body" segment
+        field_path = ".".join(
+            str(loc) for loc in error["loc"] if loc != "body"
+        )
+        field_errors[field_path] = error["msg"]
+
+    return JSONResponse(
+        status_code=422,
+        content={
+            "code": "INVALID_ESTIMATE_INPUT",
+            "message": "One or more assumptions are invalid.",
+            "fieldErrors": field_errors,
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
 @app.get("/health")
@@ -154,3 +182,21 @@ def get_price_by_sku(sku_key: str, session: Session = Depends(get_session)):
             detail=f"SKU key '{sku_key}' not found in cache.",
         )
     return record
+
+
+# ---------------------------------------------------------------------------
+# Cost Estimation
+# ---------------------------------------------------------------------------
+@app.post("/api/v1/cost-estimates", response_model=CostEstimateResponse)
+def cost_estimate(
+    request: CostEstimateRequest,
+    session: Session = Depends(get_session),
+):
+    """
+    Calculate monthly/annual cost estimates for AI deployments on Azure.
+
+    Accepts form inputs (users, tokens, RAG, etc.), runs each scenario
+    through the pricing formula using real cached Azure prices, and
+    returns a side-by-side comparison of Scenarios A, B, and C.
+    """
+    return calculate_all_scenarios(request, session)
