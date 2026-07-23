@@ -181,7 +181,6 @@ select:focus-visible {
   gap: 12px;
 }
 
-.resource-selector,
 .accordion,
 .estimate-card,
 .comparison-card,
@@ -192,70 +191,6 @@ select:focus-visible {
   box-shadow: 0 1px 1px rgba(31, 38, 55, 0.02);
 }
 
-.resource-selector {
-  min-width: 0;
-  margin: 0;
-  padding: 20px;
-}
-
-.resource-selector legend {
-  float: left;
-  width: 100%;
-  margin: 0 0 5px;
-  padding: 0;
-  color: var(--ink);
-  font-family: Georgia, "Times New Roman", serif;
-  font-size: 1.16rem;
-  font-weight: 700;
-}
-
-.resource-selector__intro {
-  clear: both;
-  margin: 0 0 15px;
-  color: var(--ink-soft);
-  font-size: 0.8rem;
-  line-height: 1.5;
-}
-
-.resource-selector__grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.resource-choice {
-  position: relative;
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  background: var(--paper);
-  transition:
-    border-color 140ms ease,
-    background 140ms ease;
-}
-
-.resource-choice:hover {
-  border-color: #9ea7b8;
-}
-
-.resource-choice--selected {
-  border-color: #9fb2ef;
-  background: var(--blue-soft);
-}
-
-.resource-choice__label {
-  display: flex;
-  min-width: 0;
-  flex: 1;
-  align-items: center;
-  gap: 9px;
-  padding: 10px 5px 10px 10px;
-  cursor: pointer;
-}
-
-.resource-choice__label input,
 .checkbox input {
   position: absolute;
   width: 1px;
@@ -266,7 +201,6 @@ select:focus-visible {
   white-space: nowrap;
 }
 
-.resource-choice__mark,
 .checkbox__mark {
   display: grid;
   width: 18px;
@@ -280,7 +214,6 @@ select:focus-visible {
   transition: 140ms ease;
 }
 
-.resource-choice__mark svg,
 .checkbox__mark svg {
   width: 13px;
   height: 13px;
@@ -291,53 +224,15 @@ select:focus-visible {
   stroke-width: 2.2;
 }
 
-.resource-choice--selected .resource-choice__mark,
 .checkbox--checked .checkbox__mark {
   border-color: var(--blue);
   background: var(--blue);
   color: #fff;
 }
 
-.resource-choice__label input:focus-visible + .resource-choice__mark,
 .checkbox input:focus-visible + .checkbox__mark {
   outline: 3px solid rgba(49, 86, 200, 0.28);
   outline-offset: 2px;
-}
-
-.resource-choice__copy {
-  display: grid;
-  min-width: 0;
-  gap: 2px;
-}
-
-.resource-choice__copy strong {
-  overflow: hidden;
-  color: var(--ink);
-  font-size: 0.76rem;
-  font-weight: 700;
-  line-height: 1.2;
-  text-overflow: ellipsis;
-}
-
-.resource-choice__copy small {
-  overflow: hidden;
-  color: var(--muted);
-  font-size: 0.62rem;
-  line-height: 1.25;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.resource-choice > .help-tooltip {
-  margin-right: 7px;
-}
-
-.resource-selector__error {
-  margin: 12px 0 0;
-  color: var(--red);
-  font-size: 0.76rem;
-  font-weight: 650;
-  line-height: 1.4;
 }
 
 .accordion {
@@ -521,7 +416,6 @@ select:focus-visible {
   transform: translateY(0);
 }
 
-.select-input,
 .number-input input {
   min-height: 34px;
   border: 1px solid #c7cbd3;
@@ -530,11 +424,6 @@ select:focus-visible {
   color: var(--ink);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.73rem;
-}
-
-.select-input {
-  width: min(230px, 42vw);
-  padding: 6px 28px 6px 9px;
 }
 
 .number-input {
@@ -995,9 +884,6 @@ tbody th small {
     gap: 22px;
   }
 
-  .resource-selector__grid {
-    grid-template-columns: 1fr;
-  }
 }
 
 @media (max-width: 900px) {
@@ -1013,9 +899,6 @@ tbody th small {
     position: static;
   }
 
-  .resource-selector__grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 
 @media (max-width: 620px) {
@@ -1037,7 +920,6 @@ tbody th small {
     text-align: left;
   }
 
-  .resource-selector__grid,
   .scenario-tabs,
   .estimate-metrics {
     grid-template-columns: 1fr;
@@ -1061,8 +943,7 @@ tbody th small {
     gap: 7px;
   }
 
-  .form-field__control,
-  .select-input {
+  .form-field__control {
     width: 100%;
   }
 

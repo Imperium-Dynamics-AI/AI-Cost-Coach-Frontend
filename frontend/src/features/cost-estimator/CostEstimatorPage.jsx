@@ -5,31 +5,20 @@ import { USING_PLACEHOLDER_API } from "./api/costEstimateApi";
 import { useCalculatorForm } from "./hooks/useCalculatorForm";
 import { useCostEstimate } from "./hooks/useCostEstimate";
 import { buildEstimatePayload } from "./utils/buildEstimatePayload";
-import { getScenarios } from "./config/calculatorConfig";
+import { SCENARIOS } from "./config/calculatorConfig";
 
 export function CostEstimatorPage() {
   const [activeTab, setActiveTab] = useState("A");
-  const { values, setValue, toggleResource, hasSelectedResource } = useCalculatorForm();
+  const { values, setValue } = useCalculatorForm();
   const { status, result, error, calculate, reset } = useCostEstimate();
-  const scenarios = getScenarios(values.openai.model);
 
   const handleValueChange = (path, value) => {
     setValue(path, value);
     reset();
   };
 
-  const handleResourceToggle = (resourceKey) => {
-    toggleResource(resourceKey);
-    reset();
-  };
-
   const handleSubmit = (event) => {
     event.preventDefault();
-
-    if (!hasSelectedResource) {
-      return;
-    }
-
     calculate(buildEstimatePayload(values));
   };
 
@@ -41,8 +30,8 @@ export function CostEstimatorPage() {
             <span className="page-header__kicker">Azure planning tool</span>
             <h1>Plan your AI solution budget</h1>
             <p>
-              Describe how people will use your solution. We’ll compare three Azure AI
-              approaches and show where the monthly cost comes from.
+              Enter the usage assumptions supported by the pricing service. We’ll compare
+              GPT-4o, GPT-4.1, and GPT-4o with document search.
             </p>
           </div>
           <div className="page-header__badge" aria-label="All estimates are in US dollars">
@@ -68,8 +57,6 @@ export function CostEstimatorPage() {
           <CalculatorForm
             values={values}
             setValue={handleValueChange}
-            toggleResource={handleResourceToggle}
-            hasSelectedResource={hasSelectedResource}
             onSubmit={handleSubmit}
             status={status}
           />
@@ -77,10 +64,10 @@ export function CostEstimatorPage() {
             status={status}
             result={result}
             error={error}
-            scenarios={scenarios}
+            scenarios={SCENARIOS}
             activeTab={activeTab}
             onTabChange={setActiveTab}
-            resources={values.resources}
+            computeEnabled={values.compute.enabled}
             growthPct={values.global.growthPct}
           />
         </div>

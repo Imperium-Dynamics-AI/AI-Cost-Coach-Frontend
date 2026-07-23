@@ -1,6 +1,6 @@
 # Cost estimate API contract
 
-This is the hand-off contract for the future backend. The frontend endpoint is configured by `VITE_API_BASE_URL` and defaults to the same origin.
+This document records the request currently sent by the frontend to the existing FastAPI calculation endpoint. The frontend base URL is configured with `VITE_API_BASE_URL`.
 
 ## Endpoint
 
@@ -14,19 +14,12 @@ Content-Type: application/json
 
 ## Request
 
-The request contains the selected resources, the three comparison scenarios, and the assumptions collected in the form.
+The frontend intentionally sends only values consumed by the current calculation engine. Other fields accepted by the broader Pydantic schema are omitted until the backend uses them in a calculation.
 
 ```json
 {
   "resources": {
-    "openai": true,
-    "rag": true,
-    "storage": false,
-    "compute": false,
-    "apim": false,
-    "monitoring": false,
-    "identity": false,
-    "finetuning": false
+    "compute": false
   },
   "scenarios": [
     { "id": "A", "model": "GPT-4o", "forceRag": false },
@@ -34,55 +27,41 @@ The request contains the selected resources, the three comparison scenarios, and
     { "id": "C", "model": "GPT-4o", "forceRag": true }
   ],
   "openai": {
-    "model": "GPT-4o",
-    "billingMode": "payg",
-    "regionType": "global",
     "users": 500,
     "requestsPerDay": 5,
     "avgPromptTokens": 800,
-    "avgCompletionTokens": 400,
-    "historyTurns": 1,
-    "systemOverheadTokens": 300,
-    "maxTokensCap": 0,
-    "ptu": { "count": 15, "commitment": "annual", "scope": "global" },
-    "batch": { "percentEligible": 30 }
+    "avgCompletionTokens": 400
   },
   "rag": {
-    "embeddingModel": "small",
-    "numDocuments": 2000,
-    "avgDocTokens": 600,
-    "chunkSize": 300,
-    "reindexFreq": "onetime",
-    "vectorQueriesPerDay": 200,
-    "searchTier": "basic",
-    "replicaCount": 1
+    "avgDocTokens": 600
   },
   "storage": {
-    "docStorageGB": 5,
-    "storageGrowthPct": 5,
-    "vectorStorageGB": 2,
-    "sqlTier": "standard"
+    "docStorageGB": 5
   },
-  "compute": {
-    "appServiceTier": "basic",
-    "functionsPlan": "consumption",
-    "environments": { "dev": true, "test": false, "prod": true }
-  },
-  "apim": { "apimTier": "developer" },
-  "monitoring": { "logGB": 10, "retentionDays": 30 },
-  "identity": {
-    "entraTier": "free",
-    "licensedUsers": 500,
-    "keyVaultIncluded": true
-  },
-  "finetuning": { "hostingOn": false, "trainingCost": 0 },
-  "global": { "retryOverheadPct": 10, "growthPct": 10, "infraOverheadUsd": 40 }
+  "global": {
+    "growthPct": 10
+  }
 }
 ```
 
+### Field mapping
+
+| Frontend input | Request field | How the backend uses it |
+|---|---|---|
+| Active people | `openai.users` | Multiplies monthly request volume |
+| Interactions per person/day | `openai.requestsPerDay` | Multiplies monthly request volume using 30 days |
+| Typical user message size | `openai.avgPromptTokens` | Calculates model input-token cost |
+| Typical AI answer size | `openai.avgCompletionTokens` | Calculates model output-token cost |
+| Document text per request | `rag.avgDocTokens` | Adds prompt tokens to the RAG scenario |
+| Source documents stored | `storage.docStorageGB` | Calculates Blob Storage cost for the RAG scenario |
+| Include App Service | `resources.compute` | Includes one cached Basic B1 App Service price |
+| Expected monthly growth | `global.growthPct` | Calculates next-month and compounded annual projections |
+
+Scenario definitions are controlled by the frontend and are not editable form inputs. `forceRag` makes Option C include AI Search, document storage, and retrieved document context.
+
 ## Successful response
 
-All monetary values are numbers in the declared currency. A resource cost may be `null` only when the backend cannot price it; the backend should include a warning in that case.
+All monetary values are numbers in the declared currency. A resource cost may be `null` only when the backend cannot find a required cached price; the backend includes a warning in that case.
 
 ```json
 {
@@ -113,18 +92,18 @@ All monetary values are numbers in the declared currency. A resource cost may be
 }
 ```
 
-The response must contain entries for scenario IDs `A`, `B`, and `C`, even when one cannot be priced.
+The actual response contains entries for scenario IDs `A`, `B`, and `C`; the example abbreviates the repeated scenario structure.
 
 ## Error response
 
-Use an appropriate HTTP status and a stable error shape:
+The backend returns validation failures with HTTP `422` and this stable shape:
 
 ```json
 {
   "code": "INVALID_ESTIMATE_INPUT",
   "message": "One or more assumptions are invalid.",
   "fieldErrors": {
-    "openai.users": "Must be zero or greater."
+    "openai.users": "Input should be greater than or equal to 1."
   }
 }
 ```

@@ -1,4 +1,4 @@
-import { RESOURCE_OPTIONS } from "../config/calculatorConfig";
+import { COST_CATEGORIES } from "../config/calculatorConfig";
 
 function formatCurrency(value, currency = "USD", digits = 2) {
   if (value === null || value === undefined || !Number.isFinite(value)) {
@@ -45,7 +45,7 @@ function EmptyState() {
       </svg>
       <h2>Your comparison will appear here</h2>
       <p>
-        Choose the parts of your solution, enter your expected usage, and select
+        Enter your expected usage and select
         <strong> Estimate and compare monthly cost</strong>.
       </p>
     </div>
@@ -133,7 +133,7 @@ function ResultsTable({ result, scenarios }) {
   );
 }
 
-function EstimateReceipt({ result, scenarios, activeTab, resources, growthPct }) {
+function EstimateReceipt({ result, scenarios, activeTab, computeEnabled, growthPct }) {
   const activeScenario = result.scenarios[activeTab];
   const scenarioConfig = scenarios.find((scenario) => scenario.id === activeTab);
 
@@ -141,9 +141,11 @@ function EstimateReceipt({ result, scenarios, activeTab, resources, growthPct })
     return <ErrorState message="The pricing service did not return this comparison option." />;
   }
 
-  const includedResources = RESOURCE_OPTIONS.filter(
-    (resource) =>
-      resources[resource.key] || (scenarioConfig?.forceRag && resource.key === "rag"),
+  const includedResources = COST_CATEGORIES.filter(
+    (category) =>
+      category.availability === "always" ||
+      (category.availability === "rag" && scenarioConfig?.forceRag) ||
+      (category.availability === "compute" && computeEnabled),
   );
 
   return (
@@ -230,7 +232,7 @@ export function EstimateResults({
   scenarios,
   activeTab,
   onTabChange,
-  resources,
+  computeEnabled,
   growthPct,
 }) {
   return (
@@ -249,7 +251,7 @@ export function EstimateResults({
           result={result}
           scenarios={scenarios}
           activeTab={activeTab}
-          resources={resources}
+          computeEnabled={computeEnabled}
           growthPct={growthPct}
         />
       ) : null}

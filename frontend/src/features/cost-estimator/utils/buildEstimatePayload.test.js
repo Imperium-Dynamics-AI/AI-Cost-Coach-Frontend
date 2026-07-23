@@ -3,33 +3,40 @@ import test from "node:test";
 import { createInitialFormValues } from "../config/calculatorConfig.js";
 import { buildEstimatePayload } from "./buildEstimatePayload.js";
 
-test("builds the documented default backend payload", () => {
+test("sends only fields consumed by the current backend calculator", () => {
   const payload = buildEstimatePayload(createInitialFormValues());
 
-  assert.equal(payload.openai.model, "GPT-4o");
-  assert.equal(payload.scenarios.length, 3);
-  assert.deepEqual(payload.scenarios[0], {
-    id: "A",
-    model: "GPT-4o",
-    forceRag: false,
+  assert.deepEqual(Object.keys(payload).sort(), [
+    "global",
+    "openai",
+    "rag",
+    "resources",
+    "scenarios",
+    "storage",
+  ]);
+  assert.deepEqual(payload.resources, { compute: false });
+  assert.deepEqual(payload.openai, {
+    users: 500,
+    requestsPerDay: 5,
+    avgPromptTokens: 800,
+    avgCompletionTokens: 400,
   });
-  assert.deepEqual(payload.compute.environments, {
-    dev: true,
-    test: false,
-    prod: true,
-  });
-  assert.equal(payload.identity.keyVaultIncluded, true);
-  assert.equal(payload.global.infraOverheadUsd, 40);
+  assert.deepEqual(payload.rag, { avgDocTokens: 600 });
+  assert.deepEqual(payload.storage, { docStorageGB: 5 });
+  assert.deepEqual(payload.global, { growthPct: 10 });
+  assert.deepEqual(payload.scenarios, [
+    { id: "A", model: "GPT-4o", forceRag: false },
+    { id: "B", model: "GPT-4.1", forceRag: false },
+    { id: "C", model: "GPT-4o", forceRag: true },
+  ]);
 });
 
-test("uses the selected model for the primary comparison option", () => {
+test("maps the app-hosting choice to resources.compute", () => {
   const values = createInitialFormValues();
-  values.openai.model = "o4-mini";
-  values.resources.monitoring = true;
+  values.compute.enabled = true;
 
   const payload = buildEstimatePayload(values);
 
-  assert.equal(payload.scenarios[0].model, "o4-mini");
-  assert.equal(payload.scenarios[1].model, "GPT-4.1");
-  assert.equal(payload.resources.monitoring, true);
+  assert.equal(payload.resources.compute, true);
+  assert.equal("compute" in payload, false);
 });

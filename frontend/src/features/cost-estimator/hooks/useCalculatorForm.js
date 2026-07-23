@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 import { createInitialFormValues } from "../config/calculatorConfig";
 
 function updateNestedValue(source, path, value) {
@@ -26,25 +26,8 @@ export function useCalculatorForm() {
     setValues((current) => updateNestedValue(current, path, value));
   }, []);
 
-  const toggleResource = useCallback((resourceKey) => {
-    setValues((current) =>
-      updateNestedValue(
-        current,
-        `resources.${resourceKey}`,
-        !current.resources[resourceKey],
-      ),
-    );
-  }, []);
-
-  const hasSelectedResource = useMemo(
-    () => Object.values(values.resources).some(Boolean),
-    [values.resources],
-  );
-
   return {
     values,
     setValue,
-    toggleResource,
-    hasSelectedResource,
   };
 }
