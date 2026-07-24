@@ -18,16 +18,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class ResourcesInput(BaseModel):
-    """Boolean toggles indicating which resource sections the user enabled."""
+    """Toggle for optional resource categories."""
 
-    openai: bool = True
-    rag: bool = True
-    storage: bool = False
     compute: bool = False
-    apim: bool = False
-    monitoring: bool = False
-    identity: bool = False
-    finetuning: bool = False
 
 
 class ScenarioInput(BaseModel):
@@ -38,102 +31,38 @@ class ScenarioInput(BaseModel):
     forceRag: bool = False
 
 
-class PTUInput(BaseModel):
-    count: int = 15
-    commitment: str = "annual"
-    scope: str = "global"
-
-
-class BatchInput(BaseModel):
-    percentEligible: float = 30
-
-
 class OpenAIInput(BaseModel):
     """Core usage assumptions collected from the form."""
 
-    model: str = "GPT-4o"
-    billingMode: str = "payg"
-    regionType: str = "global"
     users: int = Field(default=500, ge=1, description="Number of active users")
     requestsPerDay: int = Field(default=5, ge=1, description="Messages per user per day")
     avgPromptTokens: int = Field(default=800, ge=0, description="Average prompt tokens")
     avgCompletionTokens: int = Field(default=400, ge=0, description="Average response tokens")
-    historyTurns: int = 1
-    systemOverheadTokens: int = 300
-    maxTokensCap: int = 0
-    ptu: Optional[PTUInput] = None
-    batch: Optional[BatchInput] = None
 
 
 class RAGInput(BaseModel):
-    """RAG-specific inputs — only relevant when RAG is enabled."""
+    """RAG-specific inputs — only relevant when a scenario has forceRag enabled."""
 
-    embeddingModel: str = "small"
-    numDocuments: int = 2000
     avgDocTokens: int = Field(default=600, ge=0, description="Avg tokens per doc chunk injected into prompt")
-    chunkSize: int = 300
-    reindexFreq: str = "onetime"
-    vectorQueriesPerDay: int = 200
-    searchTier: str = "basic"
-    replicaCount: int = 1
 
 
 class StorageInput(BaseModel):
-    """Storage assumptions for document and vector data."""
+    """Document storage assumptions for the RAG scenario."""
 
-    docStorageGB: float = Field(default=5, ge=0)
-    storageGrowthPct: float = 5
-    vectorStorageGB: float = 2
-    sqlTier: str = "standard"
-
-
-class EnvironmentsInput(BaseModel):
-    dev: bool = True
-    test: bool = False
-    prod: bool = True
-
-
-class ComputeInput(BaseModel):
-    appServiceTier: str = "basic"
-    functionsPlan: str = "consumption"
-    environments: Optional[EnvironmentsInput] = None
-
-
-class APIMInput(BaseModel):
-    apimTier: str = "developer"
-
-
-class MonitoringInput(BaseModel):
-    logGB: float = 10
-    retentionDays: int = 30
-
-
-class IdentityInput(BaseModel):
-    entraTier: str = "free"
-    licensedUsers: int = 500
-    keyVaultIncluded: bool = True
-
-
-class FinetuningInput(BaseModel):
-    hostingOn: bool = False
-    trainingCost: float = 0
+    docStorageGB: float = Field(default=5, ge=0, description="Total document storage in GB")
 
 
 class GlobalInput(BaseModel):
-    """Planning buffer values — growth and overhead."""
+    """Growth projection settings."""
 
-    retryOverheadPct: float = 10
     growthPct: float = Field(default=10, ge=0, description="Monthly growth percentage")
-    infraOverheadUsd: float = 40
 
 
 class CostEstimateRequest(BaseModel):
     """
-    The full request body sent by the frontend.
+    The request body sent by the frontend.
 
-    All sections are accepted to stay compatible with the API contract.
-    The MVP calculation engine uses: resources, scenarios, openai, rag,
-    storage, compute, and global.
+    Contains only the fields actively consumed by the calculation engine.
     """
 
     model_config = ConfigDict(populate_by_name=True)
@@ -143,11 +72,6 @@ class CostEstimateRequest(BaseModel):
     openai: OpenAIInput = Field(default_factory=OpenAIInput)
     rag: RAGInput = Field(default_factory=RAGInput)
     storage: StorageInput = Field(default_factory=StorageInput)
-    compute: ComputeInput = Field(default_factory=ComputeInput)
-    apim: Optional[APIMInput] = None
-    monitoring: Optional[MonitoringInput] = None
-    identity: Optional[IdentityInput] = None
-    finetuning: Optional[FinetuningInput] = None
     global_settings: GlobalInput = Field(default_factory=GlobalInput, alias="global")
 
 
