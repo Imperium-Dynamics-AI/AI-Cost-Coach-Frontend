@@ -6,45 +6,46 @@ This backend service powers the **Azure AI Cost Coach**. It fetches live retail 
 
 ## Architecture & Features
 
+* **PDM Dependency Management (`pyproject.toml` & `pdm.lock`)**: Modern PEP 621 Python package and dependency management.
 * **Modular Directory Architecture**: Structured into clean `src/` modules (`config`, `core`, `models`, `schemas`, `services`, `api`) with single-responsibility files under 50–80 lines each.
 * **Multi-Model Azure Pricing Sync (`src/services/azure_sync.py`)**: Automatically fetches retail rates for **12 popular OpenAI models** (GPT-4o, GPT-4o mini, GPT-4.1, GPT-4.1 mini, GPT-4.1 nano, GPT-4 Turbo, GPT-3.5 Turbo, o1, o1 mini, o3, o3 mini, o4-mini) plus infrastructure (AI Search, Blob Storage, App Service).
 * **Model Catalog Endpoint (`GET /api/v1/models`)**: Returns input/output prices per 1K tokens + infrastructure rates in a single response, enabling dynamic client-side calculations in the React frontend.
 * **SQLite Cache Database (`src/core/database.py`)**: Stores pricing data locally with zero configuration to ensure fast response times and zero external API dependencies during cost estimations.
 * **Background Auto-Refresh**: Uses `AsyncIOScheduler` to refresh price caches every 24 hours.
 * **Cost Calculation Engine (`src/services/calculator.py`)**: Implements formula calculations for token costs (including RAG document prompt context injection), AI Search hosting, storage growth, and App Service compute toggles. Provides side-by-side comparisons of **Scenarios A, B, and C**.
-* **Docker Containerization**: Includes production `Dockerfile` and `.dockerignore` ready for Azure Container Registry (ACR) and Azure App Service deployment.
+* **Docker Containerization**: Includes production `Dockerfile` and `.dockerignore` configured with PDM.
 
 ---
 
 ## Technical Stack
 
+* **PDM**: Modern Python package & dependency manager (using `pyproject.toml` and deterministic `pdm.lock`).
 * **FastAPI**: High-performance Python web framework.
 * **Pydantic v2 & SQLModel**: Data validation, request/response contracts, and SQLite ORM.
 * **SQLite**: Embedded database for caching Azure retail rates.
 * **APScheduler**: Asynchronous background scheduler for periodic price refreshes.
 * **HTTPX**: Async HTTP client for Azure Retail Prices API integration.
-* **Uvicorn**: Lightning-fast ASGI server implementation.
+* **Uvicorn**: ASGI server implementation.
 
 ---
 
-## Setup and Running Locally
+## Setup and Running Locally (with PDM)
 
-### 1. Create & Activate Virtual Environment
-```powershell
-cd backend
-python -m venv venv
-.\venv\Scripts\Activate.ps1   # On Windows PowerShell
-# source venv/bin/activate    # On macOS/Linux
+### 1. Install PDM (if not already installed)
+```bash
+pip install pdm
 ```
 
-### 2. Install Dependencies
-```bash
-pip install -r requirements.txt
+### 2. Install Project Dependencies
+Navigate to the `backend/` directory and install locked dependencies:
+```powershell
+cd backend
+pdm install
 ```
 
 ### 3. Run the Development Server
-```bash
-uvicorn src.main:app --reload
+```powershell
+pdm run uvicorn src.main:app --reload
 ```
 The server runs on **`http://127.0.0.1:8000`**.
 
@@ -79,45 +80,14 @@ Interactive Swagger API Documentation: [http://127.0.0.1:8000/docs](http://127.0
 
 ---
 
-## Primary Endpoint: `GET /api/v1/models`
-
-Returns all cached OpenAI model input/output rates per 1K tokens along with infrastructure prices:
-
-```json
-{
-  "region": "eastus",
-  "currency": "USD",
-  "models": [
-    {
-      "id": "gpt-4o",
-      "name": "GPT-4o",
-      "inputPer1K": 0.0055,
-      "outputPer1K": 0.0165
-    },
-    {
-      "id": "gpt-4.1",
-      "name": "GPT-4.1",
-      "inputPer1K": 0.0022,
-      "outputPer1K": 0.0088
-    }
-  ],
-  "infrastructure": {
-    "aiSearchBasicPerHour": 0.101,
-    "blobStoragePerGB": 0.0208,
-    "appServiceB1PerHour": 0.017
-  }
-}
-```
-
----
-
 ## Directory Structure
 
 ```
 backend/
-├── Dockerfile                  # Container build recipe
+├── pyproject.toml              # PDM project metadata & dependency declarations
+├── pdm.lock                    # Deterministic PDM lockfile
+├── Dockerfile                  # Container build recipe using PDM
 ├── .dockerignore               # Files excluded from container build
-├── requirements.txt            # Package dependencies
 ├── README.md                   # Documentation & setup guide
 └── src/
     ├── main.py                 # Lean application entrypoint (< 30 lines)

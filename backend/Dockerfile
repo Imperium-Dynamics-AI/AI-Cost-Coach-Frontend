@@ -8,17 +8,20 @@ ENV PYTHONUNBUFFERED=1
 # Set working directory inside container
 WORKDIR /app
 
-# Copy requirements file first for layer caching
-COPY requirements.txt .
+# Install PDM package manager
+RUN pip install --no-cache-dir pdm
 
-# Install dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy PDM dependency metadata for caching
+COPY pyproject.toml pdm.lock* ./
 
-# Copy backend source files
+# Install dependencies into container via PDM
+RUN pdm install --prod --no-editable
+
+# Copy backend source code
 COPY . .
 
 # Expose port 8000 for Uvicorn
 EXPOSE 8000
 
-# Start Uvicorn app server
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Start Uvicorn app server via PDM
+CMD ["pdm", "run", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]

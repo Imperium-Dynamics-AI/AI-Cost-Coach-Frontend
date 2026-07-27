@@ -4,6 +4,7 @@ __pycache__/
 *.pyo
 *.pyd
 .pytest_cache/
+.pdm-build/
 azure_prices.db
 .env
 .git/
