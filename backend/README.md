@@ -1,15 +1,18 @@
 # Azure AI Cost Coach — Backend API
 
-This backend service powers the **Azure AI Cost Coach**. It fetches live retail pricing data from the official Azure Retail Prices API, caches it locally in SQLite, and provides a scenario calculation engine that computes monthly and annual estimates for Azure AI deployments.
+This backend service powers the **Azure AI Cost Coach**. It fetches live retail pricing data from the official Azure Retail Prices API, caches it locally in SQLite, and provides REST endpoints for model rates and scenario calculation estimates for Azure AI deployments.
 
 ---
 
 ## Architecture & Features
 
-* **Azure Pricing Sync (`updater.py`)**: Automatically fetches retail rates for OpenAI models (GPT-4o, GPT-4.1), AI Search (Basic tier), Blob Storage (Hot LRS), and App Service (B1 tier) from `prices.azure.com`.
-* **SQLite Cache Database (`database.py`)**: Stores pricing data locally with zero configuration to ensure fast response times and zero external API dependencies during cost estimations.
+* **Modular Directory Architecture**: Structured into clean `src/` modules (`config`, `core`, `models`, `schemas`, `services`, `api`) with single-responsibility files under 50–80 lines each.
+* **Multi-Model Azure Pricing Sync (`src/services/azure_sync.py`)**: Automatically fetches retail rates for **12 popular OpenAI models** (GPT-4o, GPT-4o mini, GPT-4.1, GPT-4.1 mini, GPT-4.1 nano, GPT-4 Turbo, GPT-3.5 Turbo, o1, o1 mini, o3, o3 mini, o4-mini) plus infrastructure (AI Search, Blob Storage, App Service).
+* **Model Catalog Endpoint (`GET /api/v1/models`)**: Returns input/output prices per 1K tokens + infrastructure rates in a single response, enabling dynamic client-side calculations in the React frontend.
+* **SQLite Cache Database (`src/core/database.py`)**: Stores pricing data locally with zero configuration to ensure fast response times and zero external API dependencies during cost estimations.
 * **Background Auto-Refresh**: Uses `AsyncIOScheduler` to refresh price caches every 24 hours.
-* **Cost Calculation Engine (`calculator.py` & `schemas.py`)**: Implements formula calculations for token costs (including RAG document prompt context injection), AI Search hosting, storage growth, and App Service compute toggles. Provides side-by-side comparisons of **Scenarios A, B, and C**.
+* **Cost Calculation Engine (`src/services/calculator.py`)**: Implements formula calculations for token costs (including RAG document prompt context injection), AI Search hosting, storage growth, and App Service compute toggles. Provides side-by-side comparisons of **Scenarios A, B, and C**.
+* **Docker Containerization**: Includes production `Dockerfile` and `.dockerignore` ready for Azure Container Registry (ACR) and Azure App Service deployment.
 
 ---
 
@@ -20,6 +23,7 @@ This backend service powers the **Azure AI Cost Coach**. It fetches live retail 
 * **SQLite**: Embedded database for caching Azure retail rates.
 * **APScheduler**: Asynchronous background scheduler for periodic price refreshes.
 * **HTTPX**: Async HTTP client for Azure Retail Prices API integration.
+* **Uvicorn**: Lightning-fast ASGI server implementation.
 
 ---
 
@@ -40,9 +44,23 @@ pip install -r requirements.txt
 
 ### 3. Run the Development Server
 ```bash
-uvicorn main:app --reload
+uvicorn src.main:app --reload
 ```
 The server runs on **`http://127.0.0.1:8000`**.
+
+---
+
+## Docker Containerization
+
+### Build Image Locally
+```powershell
+docker build -t ai-cost-coach-backend:v1 ./backend
+```
+
+### Run Container Locally
+```powershell
+docker run -d -p 8000:8000 --name backend-app ai-cost-coach-backend:v1
+```
 
 ---
 
@@ -52,6 +70,7 @@ Interactive Swagger API Documentation: [http://127.0.0.1:8000/docs](http://127.0
 
 | Method | Endpoint | Description |
 |---|---|---|
+| `GET` | `/api/v1/models` | **OpenAI Model Catalog & Prices** — Primary endpoint for frontend dynamic calculations |
 | `POST` | `/api/v1/cost-estimates` | **Cost Calculation Engine** — Computes monthly/annual costs & compares Scenarios A, B, C |
 | `GET` | `/health` | System health check, cached SKU counts, and cache age monitoring |
 | `GET` | `/prices` | Fetch all cached Azure price records |
@@ -60,82 +79,66 @@ Interactive Swagger API Documentation: [http://127.0.0.1:8000/docs](http://127.0
 
 ---
 
-## Cost Calculation Engine Endpoint
+## Primary Endpoint: `GET /api/v1/models`
 
-### `POST /api/v1/cost-estimates`
+Returns all cached OpenAI model input/output rates per 1K tokens along with infrastructure prices:
 
-#### Sample Request Body
 ```json
 {
-  "scenarios": [
-    { "id": "A", "model": "GPT-4o", "forceRag": false },
-    { "id": "B", "model": "GPT-4.1", "forceRag": false },
-    { "id": "C", "model": "GPT-4o", "forceRag": true }
-  ],
-  "openai": {
-    "users": 500,
-    "requestsPerDay": 10,
-    "avgPromptTokens": 300,
-    "avgCompletionTokens": 600
-  },
-  "resources": {
-    "compute": true,
-    "rag": true
-  },
-  "storage": {
-    "docStorageGB": 5
-  },
-  "rag": {
-    "avgDocTokens": 600
-  },
-  "global": {
-    "growthPct": 0
-  }
-}
-```
-
-#### Sample Response Body
-```json
-{
+  "region": "eastus",
   "currency": "USD",
-  "totalMonthlyRequests": 150000,
-  "cheapestId": "B",
-  "warnings": [],
-  "scenarios": {
-    "A": {
+  "models": [
+    {
+      "id": "gpt-4o",
       "name": "GPT-4o",
-      "breakdown": {
-        "openai": 1597.50,
-        "rag": 0.0,
-        "storage": 0.0,
-        "compute": 12.41,
-        "apim": 0.0,
-        "monitoring": 0.0,
-        "identity": 0.0,
-        "finetuning": 0.0
-      },
-      "monthlyTotal": 1609.91,
-      "annualTotal": 19318.92,
-      "costPerUser": 3.22,
-      "costPerConversation": 0.0107,
-      "nextMonthProjected": 1609.91
+      "inputPer1K": 0.0055,
+      "outputPer1K": 0.0165
+    },
+    {
+      "id": "gpt-4.1",
+      "name": "GPT-4.1",
+      "inputPer1K": 0.0022,
+      "outputPer1K": 0.0088
     }
+  ],
+  "infrastructure": {
+    "aiSearchBasicPerHour": 0.101,
+    "blobStoragePerGB": 0.0208,
+    "appServiceB1PerHour": 0.017
   }
 }
 ```
 
 ---
 
-## File Structure
+## Directory Structure
 
 ```
 backend/
-├── main.py           # FastAPI app instance, router endpoints, lifespan & health checks
-├── calculator.py     # Pure calculation engine & scenario comparison logic
-├── schemas.py        # Pydantic request/response/error schemas matching API contract
-├── updater.py        # Azure Retail Prices API client & database upsert logic
-├── database.py       # SQLModel ORM definition for AzurePriceCache & SQLite session helper
-├── config.py         # App configuration & Azure API endpoints
-├── requirements.txt  # Python package dependencies
-└── README.md         # Documentation & setup guide
+├── Dockerfile                  # Container build recipe
+├── .dockerignore               # Files excluded from container build
+├── requirements.txt            # Package dependencies
+├── README.md                   # Documentation & setup guide
+└── src/
+    ├── main.py                 # Lean application entrypoint (< 30 lines)
+    ├── config/
+    │   └── settings.py         # Application configuration & API settings
+    ├── core/
+    │   ├── database.py         # SQLite engine & init_db helper
+    │   ├── dependencies.py     # FastAPI session dependency injection provider
+    │   └── exceptions.py       # Custom 422 API contract validation error handler
+    ├── models/
+    │   └── price_cache.py      # SQLModel ORM definition for AzurePriceCache table
+    ├── schemas/
+    │   └── cost_estimate.py    # Pydantic request, response, and error schemas
+    ├── services/
+    │   ├── azure_sync.py       # Azure Retail Prices API sync & background scheduler
+    │   └── calculator.py       # Pure calculation engine logic
+    └── api/
+        ├── router.py           # Main APIRouter combining all domain routers
+        └── v1/
+            ├── health.py       # GET /health monitoring endpoint
+            ├── prices.py       # GET /prices raw cache lookup endpoints
+            ├── models.py       # GET /api/v1/models catalog endpoint
+            └── estimates.py    # POST /api/v1/cost-estimates endpoint
 ```
