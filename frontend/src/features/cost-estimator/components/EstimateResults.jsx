@@ -1,4 +1,4 @@
-import { RESOURCE_OPTIONS } from "../config/calculatorConfig";
+import { COST_CATEGORIES } from "../config/calculatorConfig";
 
 function formatCurrency(value, currency = "USD", digits = 2) {
   if (value === null || value === undefined || !Number.isFinite(value)) {
@@ -13,23 +13,29 @@ function formatCurrency(value, currency = "USD", digits = 2) {
   }).format(value);
 }
 
-function ScenarioTabs({ scenarios, activeTab, onTabChange }) {
+function ScenarioTabs({ scenarios, activeScenarioId, onScenarioChange }) {
   return (
-    <div className="scenario-tabs" role="tablist" aria-label="Cost comparison options">
+    <div
+      className={`scenario-tabs scenario-tabs--${scenarios.length}`}
+      role="tablist"
+      aria-label="Configuration comparison options"
+    >
       {scenarios.map((scenario) => (
         <button
           key={scenario.id}
           id={`scenario-tab-${scenario.id}`}
           type="button"
           role="tab"
-          aria-selected={activeTab === scenario.id}
+          aria-selected={activeScenarioId === scenario.id}
           aria-controls={`scenario-panel-${scenario.id}`}
-          className={`scenario-tab${activeTab === scenario.id ? " scenario-tab--active" : ""}`}
-          onClick={() => onTabChange(scenario.id)}
+          className={`scenario-tab${
+            activeScenarioId === scenario.id ? " scenario-tab--active" : ""
+          }`}
+          onClick={() => onScenarioChange(scenario.id)}
         >
           <span className="scenario-tab__eyebrow">{scenario.label}</span>
           <strong>{scenario.name}</strong>
-          <span className="scenario-tab__description">{scenario.description}</span>
+          <span className="scenario-tab__description">{scenario.role}</span>
         </button>
       ))}
     </div>
@@ -43,11 +49,8 @@ function EmptyState() {
         <path d="M10 8h28v32H10z" />
         <path d="M16 16h16M16 23h16M16 30h7" />
       </svg>
-      <h2>Your comparison will appear here</h2>
-      <p>
-        Choose the parts of your solution, enter your expected usage, and select
-        <strong> Estimate and compare monthly cost</strong>.
-      </p>
+      <h2>Your options will appear here</h2>
+      <p>Complete the guided questions to compare the available configurations.</p>
     </div>
   );
 }
@@ -56,8 +59,8 @@ function LoadingState() {
   return (
     <div className="result-state" role="status" aria-live="polite">
       <span className="spinner spinner--large" aria-hidden="true" />
-      <h2>Preparing your comparison</h2>
-      <p>The pricing service is reviewing the assumptions for all three options.</p>
+      <h2>Comparing your options</h2>
+      <p>The pricing service is calculating each available configuration.</p>
     </div>
   );
 }
@@ -85,12 +88,12 @@ function ResultsTable({ result, scenarios }) {
     <section className="comparison-card" aria-labelledby="comparison-heading">
       <div className="card-heading-row">
         <div>
-          <span className="eyebrow">At a glance</span>
-          <h2 id="comparison-heading">Compare all options</h2>
+          <span className="eyebrow">Same usage assumptions</span>
+          <h2 id="comparison-heading">Compare configuration options</h2>
         </div>
-        {result.totalMonthlyRequests !== null ? (
+        {Number.isFinite(result.totalMonthlyRequests) ? (
           <span className="request-summary">
-            {new Intl.NumberFormat("en-US").format(result.totalMonthlyRequests)} requests/month
+            {new Intl.NumberFormat("en-US").format(result.totalMonthlyRequests)} interactions/month
           </span>
         ) : null}
       </div>
@@ -108,20 +111,23 @@ function ResultsTable({ result, scenarios }) {
           </thead>
           <tbody>
             {scenarios.map((scenario) => {
-              const scenarioResult = result.scenarios[scenario.id];
-              const isCheapest = result.cheapestId === scenario.id;
+              const estimate = result.scenarios?.[scenario.id];
+              const isLowest = result.cheapestId === scenario.id;
 
               return (
-                <tr key={scenario.id} className={isCheapest ? "comparison-row--best" : ""}>
+                <tr key={scenario.id} className={isLowest ? "comparison-row--best" : ""}>
                   <th scope="row">
                     <span>{scenario.name}</span>
-                    {isCheapest ? <small>Lowest estimate</small> : null}
+                    <small>
+                      {scenario.label} · {scenario.role}
+                      {isLowest ? " · Lowest estimate" : ""}
+                    </small>
                   </th>
-                  <td>{formatCurrency(scenarioResult?.monthlyTotal, result.currency)}</td>
-                  <td>{formatCurrency(scenarioResult?.annualTotal, result.currency)}</td>
-                  <td>{formatCurrency(scenarioResult?.costPerUser, result.currency, 3)}</td>
+                  <td>{formatCurrency(estimate?.monthlyTotal, result.currency)}</td>
+                  <td>{formatCurrency(estimate?.annualTotal, result.currency)}</td>
+                  <td>{formatCurrency(estimate?.costPerUser, result.currency, 3)}</td>
                   <td>
-                    {formatCurrency(scenarioResult?.costPerConversation, result.currency, 4)}
+                    {formatCurrency(estimate?.costPerConversation, result.currency, 4)}
                   </td>
                 </tr>
               );
@@ -133,27 +139,35 @@ function ResultsTable({ result, scenarios }) {
   );
 }
 
-function EstimateReceipt({ result, scenarios, activeTab, resources, growthPct }) {
-  const activeScenario = result.scenarios[activeTab];
-  const scenarioConfig = scenarios.find((scenario) => scenario.id === activeTab);
+function EstimateReceipt({
+  result,
+  scenarios,
+  activeScenarioId,
+  computeEnabled,
+  growthPct,
+}) {
+  const activeScenario = scenarios.find(
+    (scenario) => scenario.id === activeScenarioId,
+  );
+  const estimate = result.scenarios?.[activeScenario?.id];
 
-  if (!activeScenario) {
+  if (!estimate) {
     return <ErrorState message="The pricing service did not return this comparison option." />;
   }
 
-  const includedResources = RESOURCE_OPTIONS.filter(
-    (resource) =>
-      resources[resource.key] || (scenarioConfig?.forceRag && resource.key === "rag"),
+  const includedCategories = COST_CATEGORIES.filter(
+    (category) =>
+      category.availability === "always" ||
+      (category.availability === "rag" && activeScenario.forceRag) ||
+      (category.availability === "compute" && computeEnabled),
   );
 
   return (
     <>
       {result.placeholder ? (
         <div className="preview-callout" role="status">
-          <strong>Inputs are ready for review.</strong>
-          <span>
-            Cost values will appear here after the backend pricing service is connected.
-          </span>
+          <strong>Your answers were recorded.</strong>
+          <span>All comparison options are ready for the backend pricing service.</span>
         </div>
       ) : null}
 
@@ -169,25 +183,35 @@ function EstimateReceipt({ result, scenarios, activeTab, resources, growthPct })
       ) : null}
 
       <section
-        id={`scenario-panel-${activeTab}`}
-        role="tabpanel"
-        aria-labelledby={`scenario-tab-${activeTab}`}
+        id={`scenario-panel-${activeScenario.id}`}
         className="estimate-card"
+        role="tabpanel"
+        aria-labelledby={`scenario-tab-${activeScenario.id}`}
       >
         <div className="estimate-card__heading">
           <div>
-            <span className="eyebrow">Estimated Azure spend</span>
-            <h2>{activeScenario.name} each month</h2>
+            <span className="eyebrow">{activeScenario.role}</span>
+            <h2>{estimate.name}</h2>
           </div>
-          <span className="estimate-card__option">{scenarioConfig?.label}</span>
+          <span className="estimate-card__option">{activeScenario.label}</span>
         </div>
 
+        {result.totalMonthlyRequests !== null ? (
+          <div className="request-volume">
+            <span>Estimated usage</span>
+            <strong>
+              {new Intl.NumberFormat("en-US").format(result.totalMonthlyRequests)} AI
+              interactions/month
+            </strong>
+          </div>
+        ) : null}
+
         <div className="receipt-lines">
-          {includedResources.map((resource) => (
+          {includedCategories.map((category) => (
             <ReceiptLine
-              key={resource.key}
-              label={resource.label}
-              value={activeScenario.breakdown?.[resource.key]}
+              key={category.key}
+              label={category.label}
+              value={estimate.breakdown?.[category.key]}
               currency={result.currency}
             />
           ))}
@@ -195,25 +219,25 @@ function EstimateReceipt({ result, scenarios, activeTab, resources, growthPct })
 
         <div className="estimate-total">
           <span>Estimated monthly cost</span>
-          <strong>{formatCurrency(activeScenario.monthlyTotal, result.currency)}</strong>
+          <strong>{formatCurrency(estimate.monthlyTotal, result.currency)}</strong>
         </div>
 
         <dl className="estimate-metrics">
           <div>
             <dt>Estimated annual cost</dt>
-            <dd>{formatCurrency(activeScenario.annualTotal, result.currency)}</dd>
+            <dd>{formatCurrency(estimate.annualTotal, result.currency)}</dd>
           </div>
           <div>
             <dt>Cost per person</dt>
-            <dd>{formatCurrency(activeScenario.costPerUser, result.currency, 3)}</dd>
+            <dd>{formatCurrency(estimate.costPerUser, result.currency, 3)}</dd>
           </div>
           <div>
             <dt>Cost per AI interaction</dt>
-            <dd>{formatCurrency(activeScenario.costPerConversation, result.currency, 4)}</dd>
+            <dd>{formatCurrency(estimate.costPerConversation, result.currency, 4)}</dd>
           </div>
           <div>
             <dt>Next month with {growthPct}% growth</dt>
-            <dd>{formatCurrency(activeScenario.nextMonthProjected, result.currency)}</dd>
+            <dd>{formatCurrency(estimate.nextMonthProjected, result.currency)}</dd>
           </div>
         </dl>
       </section>
@@ -228,30 +252,31 @@ export function EstimateResults({
   result,
   error,
   scenarios,
-  activeTab,
-  onTabChange,
-  resources,
+  activeScenarioId,
+  onScenarioChange,
+  computeEnabled,
   growthPct,
 }) {
   return (
     <div className="results-panel">
-      <ScenarioTabs
-        scenarios={scenarios}
-        activeTab={activeTab}
-        onTabChange={onTabChange}
-      />
-
       {status === "idle" ? <EmptyState /> : null}
       {status === "loading" ? <LoadingState /> : null}
       {status === "error" ? <ErrorState message={error} /> : null}
-      {status === "success" && result ? (
-        <EstimateReceipt
-          result={result}
-          scenarios={scenarios}
-          activeTab={activeTab}
-          resources={resources}
-          growthPct={growthPct}
-        />
+      {status === "success" && result && scenarios.length >= 2 ? (
+        <>
+          <ScenarioTabs
+            scenarios={scenarios}
+            activeScenarioId={activeScenarioId}
+            onScenarioChange={onScenarioChange}
+          />
+          <EstimateReceipt
+            result={result}
+            scenarios={scenarios}
+            activeScenarioId={activeScenarioId}
+            computeEnabled={computeEnabled}
+            growthPct={growthPct}
+          />
+        </>
       ) : null}
     </div>
   );

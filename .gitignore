@@ -41,3 +41,7 @@ yarn-error.log*
 tmp/
 temp/
 coverage/
+
+# Database files
+*.db
+

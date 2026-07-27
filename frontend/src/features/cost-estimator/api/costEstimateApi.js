@@ -1,7 +1,7 @@
 const API_PATH = "/api/v1/cost-estimates";
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
 
-export const USING_PLACEHOLDER_API = import.meta.env.VITE_USE_MOCK_API !== "false";
+export const USING_PLACEHOLDER_API = import.meta.env.VITE_USE_MOCK_API === "true";
 
 function createPlaceholderScenario(name) {
   return {
