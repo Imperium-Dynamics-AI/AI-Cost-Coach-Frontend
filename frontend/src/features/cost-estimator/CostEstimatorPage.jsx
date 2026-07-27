@@ -1,14 +1,17 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { CalculatorForm } from "./components/CalculatorForm";
 import { EstimateResults } from "./components/EstimateResults";
-import { USING_PLACEHOLDER_API } from "./api/costEstimateApi";
+import { USING_PLACEHOLDER_API } from "./api/modelComparisonApi";
 import { useCalculatorForm } from "./hooks/useCalculatorForm";
-import { useCostEstimate } from "./hooks/useCostEstimate";
-import { buildEstimatePayload } from "./utils/buildEstimatePayload";
-import { createComparisonScenarios } from "./config/calculatorConfig";
+import { useModelComparisons } from "./hooks/useModelComparisons";
+import { useModelCatalog } from "./hooks/useModelCatalog";
+import { buildModelComparisonPayload } from "./utils/buildModelComparisonPayload";
+import { calculateLocalEstimate } from "./utils/calculateLocalEstimate";
+
+const EMPTY_MODELS = [];
 
 export function CostEstimatorPage() {
-  const [activeScenarioId, setActiveScenarioId] = useState("A");
+  const [activeComparisonId, setActiveComparisonId] = useState(null);
   const {
     values,
     currentStep,
@@ -17,23 +20,41 @@ export function CostEstimatorPage() {
     setCurrentStep,
     resetForm,
   } = useCalculatorForm();
-  const { status, result, error, calculate, reset } = useCostEstimate();
-  const scenarios = createComparisonScenarios(values);
+  const { status, result, error, compare, reset } = useModelComparisons();
+  const {
+    status: catalogStatus,
+    catalog,
+    error: catalogError,
+    reload: reloadCatalog,
+  } = useModelCatalog();
+  const models = catalog?.models ?? EMPTY_MODELS;
+  const liveEstimate = useMemo(
+    () => calculateLocalEstimate(values, catalog),
+    [catalog, values],
+  );
+
+  useEffect(() => {
+    if (status !== "success" || !result?.comparisons?.length) {
+      return;
+    }
+
+    setActiveComparisonId(result.comparisons[0].id);
+  }, [result, status]);
 
   const handleValueChange = (path, value) => {
     setValue(path, value);
-    setActiveScenarioId("A");
+    setActiveComparisonId(null);
     reset();
   };
 
   const handleSubmit = () => {
-    setActiveScenarioId("A");
-    calculate(buildEstimatePayload(values));
+    setActiveComparisonId(null);
+    compare(buildModelComparisonPayload(values, models));
   };
 
   const handleReset = () => {
     resetForm();
-    setActiveScenarioId("A");
+    setActiveComparisonId(null);
     reset();
   };
 
@@ -63,7 +84,8 @@ export function CostEstimatorPage() {
             </svg>
             <p>
               <strong>Preview mode:</strong> you can review and submit every input now.
-              Cost values will populate when the pricing service is connected.
+              Live values use sample prices; authoritative comparisons require the real
+              pricing service.
             </p>
           </div>
         ) : null}
@@ -78,16 +100,23 @@ export function CostEstimatorPage() {
             onSubmit={handleSubmit}
             onReset={handleReset}
             status={status}
+            models={models}
+            catalogStatus={catalogStatus}
+            catalogError={catalogError}
+            catalogCurrency={catalog?.currency}
+            catalogRegion={catalog?.region}
+            onReloadCatalog={reloadCatalog}
           />
           <EstimateResults
             status={status}
             result={result}
             error={error}
-            scenarios={scenarios}
-            activeScenarioId={activeScenarioId}
-            onScenarioChange={setActiveScenarioId}
-            computeEnabled={values.compute.enabled}
+            activeComparisonId={activeComparisonId}
+            onComparisonChange={setActiveComparisonId}
             growthPct={values.global.growthPct}
+            liveEstimate={liveEstimate}
+            catalogStatus={catalogStatus}
+            catalogError={catalogError}
           />
         </div>
 

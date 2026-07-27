@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { createInitialFormValues } from "../config/calculatorConfig";
 
-const DRAFT_STORAGE_KEY = "azure-cost-coach:estimate-draft:v1";
-const DRAFT_SCHEMA_VERSION = 1;
+const DRAFT_STORAGE_KEY = "azure-cost-coach:estimate-draft:v2";
+const DRAFT_SCHEMA_VERSION = 2;
 const LAST_STEP_INDEX = 5;
 
 function updateNestedValue(source, path, value) {

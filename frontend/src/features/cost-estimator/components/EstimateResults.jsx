@@ -13,29 +13,37 @@ function formatCurrency(value, currency = "USD", digits = 2) {
   }).format(value);
 }
 
-function ScenarioTabs({ scenarios, activeScenarioId, onScenarioChange }) {
+function formatRelationship(value) {
+  if (!value) {
+    return "Backend comparison";
+  }
+
+  return value.replaceAll(/[-_]/g, " ");
+}
+
+function ComparisonTabs({ comparisons, activeComparisonId, onComparisonChange }) {
   return (
     <div
-      className={`scenario-tabs scenario-tabs--${scenarios.length}`}
+      className={`scenario-tabs scenario-tabs--${comparisons.length}`}
       role="tablist"
-      aria-label="Configuration comparison options"
+      aria-label="Model comparison options"
     >
-      {scenarios.map((scenario) => (
+      {comparisons.map((comparison) => (
         <button
-          key={scenario.id}
-          id={`scenario-tab-${scenario.id}`}
+          key={comparison.id}
+          id={`comparison-tab-${comparison.id}`}
           type="button"
           role="tab"
-          aria-selected={activeScenarioId === scenario.id}
-          aria-controls={`scenario-panel-${scenario.id}`}
+          aria-selected={activeComparisonId === comparison.id}
+          aria-controls={`comparison-panel-${comparison.id}`}
           className={`scenario-tab${
-            activeScenarioId === scenario.id ? " scenario-tab--active" : ""
+            activeComparisonId === comparison.id ? " scenario-tab--active" : ""
           }`}
-          onClick={() => onScenarioChange(scenario.id)}
+          onClick={() => onComparisonChange(comparison.id)}
         >
-          <span className="scenario-tab__eyebrow">{scenario.label}</span>
-          <strong>{scenario.name}</strong>
-          <span className="scenario-tab__description">{scenario.role}</span>
+          <span className="scenario-tab__eyebrow">{comparison.label}</span>
+          <strong>{comparison.model.name}</strong>
+          <span className="scenario-tab__description">{comparison.reason}</span>
         </button>
       ))}
     </div>
@@ -49,8 +57,11 @@ function EmptyState() {
         <path d="M10 8h28v32H10z" />
         <path d="M16 16h16M16 23h16M16 30h7" />
       </svg>
-      <h2>Your options will appear here</h2>
-      <p>Complete the guided questions to compare the available configurations.</p>
+      <h2>Your estimate will appear here</h2>
+      <p>
+        Select a model to see its live cost. Related model comparisons are requested only
+        after your final review.
+      </p>
     </div>
   );
 }
@@ -59,16 +70,29 @@ function LoadingState() {
   return (
     <div className="result-state" role="status" aria-live="polite">
       <span className="spinner spinner--large" aria-hidden="true" />
-      <h2>Comparing your options</h2>
-      <p>The pricing service is calculating each available configuration.</p>
+      <h2>Finding related models</h2>
+      <p>
+        The comparison service is selecting the model family and calculating each
+        returned option.
+      </p>
     </div>
   );
 }
 
-function ErrorState({ message }) {
+function CatalogLoadingState() {
+  return (
+    <div className="result-state" role="status" aria-live="polite">
+      <span className="spinner spinner--large" aria-hidden="true" />
+      <h2>Loading current prices</h2>
+      <p>The model catalog is being prepared for live browser-side estimates.</p>
+    </div>
+  );
+}
+
+function ErrorState({ message, title = "We couldn’t prepare the comparisons" }) {
   return (
     <div className="result-state result-state--error" role="alert">
-      <h2>We couldn’t prepare the estimate</h2>
+      <h2>{title}</h2>
       <p>{message}</p>
     </div>
   );
@@ -83,13 +107,13 @@ function ReceiptLine({ label, value, currency }) {
   );
 }
 
-function ResultsTable({ result, scenarios }) {
+function ResultsTable({ result, comparisons }) {
   return (
     <section className="comparison-card" aria-labelledby="comparison-heading">
       <div className="card-heading-row">
         <div>
-          <span className="eyebrow">Same usage assumptions</span>
-          <h2 id="comparison-heading">Compare configuration options</h2>
+          <span className="eyebrow">Backend-selected model family</span>
+          <h2 id="comparison-heading">Compare returned models</h2>
         </div>
         {Number.isFinite(result.totalMonthlyRequests) ? (
           <span className="request-summary">
@@ -102,7 +126,7 @@ function ResultsTable({ result, scenarios }) {
         <table>
           <thead>
             <tr>
-              <th scope="col">Option</th>
+              <th scope="col">Model</th>
               <th scope="col">Monthly</th>
               <th scope="col">Annual</th>
               <th scope="col">Per person</th>
@@ -110,24 +134,24 @@ function ResultsTable({ result, scenarios }) {
             </tr>
           </thead>
           <tbody>
-            {scenarios.map((scenario) => {
-              const estimate = result.scenarios?.[scenario.id];
-              const isLowest = result.cheapestId === scenario.id;
+            {comparisons.map((comparison) => {
+              const estimate = comparison.estimate;
+              const isLowest = result.cheapestId === comparison.id;
 
               return (
-                <tr key={scenario.id} className={isLowest ? "comparison-row--best" : ""}>
+                <tr key={comparison.id} className={isLowest ? "comparison-row--best" : ""}>
                   <th scope="row">
-                    <span>{scenario.name}</span>
+                    <span>{comparison.model.name}</span>
                     <small>
-                      {scenario.label} · {scenario.role}
+                      {comparison.label} · {formatRelationship(comparison.relationship)}
                       {isLowest ? " · Lowest estimate" : ""}
                     </small>
                   </th>
-                  <td>{formatCurrency(estimate?.monthlyTotal, result.currency)}</td>
-                  <td>{formatCurrency(estimate?.annualTotal, result.currency)}</td>
-                  <td>{formatCurrency(estimate?.costPerUser, result.currency, 3)}</td>
+                  <td>{formatCurrency(estimate.monthlyTotal, result.currency)}</td>
+                  <td>{formatCurrency(estimate.annualTotal, result.currency)}</td>
+                  <td>{formatCurrency(estimate.costPerUser, result.currency, 3)}</td>
                   <td>
-                    {formatCurrency(estimate?.costPerConversation, result.currency, 4)}
+                    {formatCurrency(estimate.costPerConversation, result.currency, 4)}
                   </td>
                 </tr>
               );
@@ -141,33 +165,46 @@ function ResultsTable({ result, scenarios }) {
 
 function EstimateReceipt({
   result,
-  scenarios,
-  activeScenarioId,
-  computeEnabled,
+  comparisons,
+  activeComparisonId,
   growthPct,
+  isLive = false,
+  showComparison = true,
 }) {
-  const activeScenario = scenarios.find(
-    (scenario) => scenario.id === activeScenarioId,
-  );
-  const estimate = result.scenarios?.[activeScenario?.id];
+  const activeComparison =
+    comparisons.find((comparison) => comparison.id === activeComparisonId) ??
+    comparisons[0];
+  const estimate = activeComparison?.estimate;
 
-  if (!estimate) {
-    return <ErrorState message="The pricing service did not return this comparison option." />;
+  if (!activeComparison || !estimate) {
+    return <ErrorState message="The service did not return this comparison." />;
   }
 
   const includedCategories = COST_CATEGORIES.filter(
     (category) =>
       category.availability === "always" ||
-      (category.availability === "rag" && activeScenario.forceRag) ||
-      (category.availability === "compute" && computeEnabled),
+      (category.availability === "rag" &&
+        activeComparison.configuration.ragEnabled) ||
+      (category.availability === "compute" &&
+        activeComparison.configuration.computeEnabled),
   );
 
   return (
     <>
       {result.placeholder ? (
         <div className="preview-callout" role="status">
-          <strong>Your answers were recorded.</strong>
-          <span>All comparison options are ready for the backend pricing service.</span>
+          <strong>Preview comparison only.</strong>
+          <span>The backend will choose related models when its endpoint is connected.</span>
+        </div>
+      ) : null}
+
+      {isLive ? (
+        <div className="preview-callout" role="status">
+          <strong>Live browser estimate.</strong>
+          <span>
+            This updates from the cached {result.region || "Azure"} prices as you answer.
+            Unanswered service choices are not included yet.
+          </span>
         </div>
       ) : null}
 
@@ -183,20 +220,30 @@ function EstimateReceipt({
       ) : null}
 
       <section
-        id={`scenario-panel-${activeScenario.id}`}
+        id={isLive ? undefined : `comparison-panel-${activeComparison.id}`}
         className="estimate-card"
-        role="tabpanel"
-        aria-labelledby={`scenario-tab-${activeScenario.id}`}
+        role={isLive ? undefined : "tabpanel"}
+        aria-labelledby={
+          isLive ? undefined : `comparison-tab-${activeComparison.id}`
+        }
       >
         <div className="estimate-card__heading">
           <div>
-            <span className="eyebrow">{activeScenario.role}</span>
-            <h2>{estimate.name}</h2>
+            <span className="eyebrow">
+              {isLive
+                ? activeComparison.reason
+                : formatRelationship(activeComparison.relationship)}
+            </span>
+            <h2>{estimate.name || activeComparison.model.name}</h2>
           </div>
-          <span className="estimate-card__option">{activeScenario.label}</span>
+          <span className="estimate-card__option">{activeComparison.label}</span>
         </div>
 
-        {result.totalMonthlyRequests !== null ? (
+        {!isLive && activeComparison.reason ? (
+          <p className="comparison-reason">{activeComparison.reason}</p>
+        ) : null}
+
+        {Number.isFinite(result.totalMonthlyRequests) ? (
           <div className="request-volume">
             <span>Estimated usage</span>
             <strong>
@@ -242,8 +289,43 @@ function EstimateReceipt({
         </dl>
       </section>
 
-      <ResultsTable result={result} scenarios={scenarios} />
+      {showComparison ? (
+        <ResultsTable result={result} comparisons={comparisons} />
+      ) : null}
     </>
+  );
+}
+
+function LiveEstimate({ estimate, growthPct }) {
+  const comparison = {
+    id: "live",
+    label: "Live estimate",
+    relationship: "selected",
+    reason: "Your current selection",
+    model: {
+      id: "live",
+      name: estimate.scenario.name,
+    },
+    configuration: {
+      ragEnabled: estimate.assumptions.ragEnabled,
+      computeEnabled: estimate.assumptions.computeEnabled,
+    },
+    estimate: estimate.scenario,
+  };
+  const result = {
+    ...estimate,
+    comparisons: [comparison],
+  };
+
+  return (
+    <EstimateReceipt
+      result={result}
+      comparisons={result.comparisons}
+      activeComparisonId="live"
+      growthPct={growthPct}
+      isLive
+      showComparison={false}
+    />
   );
 }
 
@@ -251,29 +333,43 @@ export function EstimateResults({
   status,
   result,
   error,
-  scenarios,
-  activeScenarioId,
-  onScenarioChange,
-  computeEnabled,
+  activeComparisonId,
+  onComparisonChange,
   growthPct,
+  liveEstimate,
+  catalogStatus,
+  catalogError,
 }) {
+  const resolvedActiveId =
+    activeComparisonId ?? result?.comparisons?.[0]?.id ?? null;
+
   return (
     <div className="results-panel">
-      {status === "idle" ? <EmptyState /> : null}
+      {status === "idle" && catalogStatus === "loading" ? (
+        <CatalogLoadingState />
+      ) : null}
+      {status === "idle" && catalogStatus === "error" ? (
+        <ErrorState title="Current prices are unavailable" message={catalogError} />
+      ) : null}
+      {status === "idle" && catalogStatus === "success" && liveEstimate ? (
+        <LiveEstimate estimate={liveEstimate} growthPct={growthPct} />
+      ) : null}
+      {status === "idle" && catalogStatus === "success" && !liveEstimate ? (
+        <EmptyState />
+      ) : null}
       {status === "loading" ? <LoadingState /> : null}
       {status === "error" ? <ErrorState message={error} /> : null}
-      {status === "success" && result && scenarios.length >= 2 ? (
+      {status === "success" && result?.comparisons?.length ? (
         <>
-          <ScenarioTabs
-            scenarios={scenarios}
-            activeScenarioId={activeScenarioId}
-            onScenarioChange={onScenarioChange}
+          <ComparisonTabs
+            comparisons={result.comparisons}
+            activeComparisonId={resolvedActiveId}
+            onComparisonChange={onComparisonChange}
           />
           <EstimateReceipt
             result={result}
-            scenarios={scenarios}
-            activeScenarioId={activeScenarioId}
-            computeEnabled={computeEnabled}
+            comparisons={result.comparisons}
+            activeComparisonId={resolvedActiveId}
             growthPct={growthPct}
           />
         </>

@@ -1,13 +1,13 @@
 import { useCallback, useRef, useState } from "react";
-import { requestCostEstimate } from "../api/costEstimateApi";
+import { requestModelComparisons } from "../api/modelComparisonApi";
 
-export function useCostEstimate() {
+export function useModelComparisons() {
   const [status, setStatus] = useState("idle");
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
   const requestId = useRef(0);
 
-  const calculate = useCallback(async (payload) => {
+  const compare = useCallback(async (payload) => {
     const currentRequestId = requestId.current + 1;
     requestId.current = currentRequestId;
     setStatus("loading");
@@ -15,7 +15,7 @@ export function useCostEstimate() {
     setError("");
 
     try {
-      const response = await requestCostEstimate(payload);
+      const response = await requestModelComparisons(payload);
 
       if (requestId.current !== currentRequestId) {
         return;
@@ -31,7 +31,7 @@ export function useCostEstimate() {
       setError(
         requestError instanceof Error
           ? requestError.message
-          : "The estimate could not be requested. Please try again.",
+          : "Model comparisons could not be requested. Please try again.",
       );
       setStatus("error");
     }
@@ -44,5 +44,5 @@ export function useCostEstimate() {
     setError("");
   }, []);
 
-  return { status, result, error, calculate, reset };
+  return { status, result, error, compare, reset };
 }

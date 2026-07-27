@@ -1,6 +1,6 @@
 # Azure AI Cost Coach
 
-Azure AI Cost Coach is a full-stack proof-of-concept that guides a business user through a short questionnaire and compares model and RAG configuration options under shared usage assumptions.
+Azure AI Cost Coach is a full-stack proof-of-concept that guides a business user through a short questionnaire, calculates the selected setup live, and displays model-family comparisons selected by a backend service.
 
 ```text
 AI-Cost-Coach/
@@ -17,6 +17,7 @@ AI-Cost-Coach/
 Install these before the first run:
 
 - Python 3.10 or newer
+- PDM
 - Node.js 20.19 or newer and npm
 - Internet access when the backend first starts, because it downloads Azure retail prices into its local SQLite cache
 
@@ -30,18 +31,15 @@ Run these commands from the repository root:
 
 ```powershell
 cd backend
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-python -m uvicorn main:app --reload --host 127.0.0.1 --port 8000
+pdm install
+pdm run uvicorn src.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
 The backend initializes its database, downloads the current Azure prices, and then starts at:
 
 - Health check: [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health)
 - Interactive API documentation: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
-- Cost endpoint: `POST http://127.0.0.1:8000/api/v1/cost-estimates`
+- Model catalog: `GET http://127.0.0.1:8000/api/v1/models`
 
 Wait until the terminal reports that startup and the initial price sync have completed before requesting an estimate. The generated `azure_prices.db` file is local runtime data and is ignored by Git.
 
@@ -65,6 +63,7 @@ The frontend environment must contain:
 ```env
 VITE_USE_MOCK_API=false
 VITE_API_BASE_URL=http://localhost:8000
+VITE_MODEL_COMPARISONS_PATH=/api/v1/model-comparisons
 ```
 
 If `frontend/.env` already exists, do not copy the example over it; confirm the two settings above and restart `npm run dev` after making changes.
@@ -77,8 +76,7 @@ Backend terminal:
 
 ```powershell
 cd backend
-.\.venv\Scripts\Activate.ps1
-python -m uvicorn main:app --reload --host 127.0.0.1 --port 8000
+pdm run uvicorn src.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
 Frontend terminal:
@@ -95,16 +93,26 @@ Press `Ctrl+C` in each terminal to stop its server.
 ```text
 Browser at localhost:5173
         |
-        | POST /api/v1/cost-estimates
+        | GET /api/v1/models
         v
 FastAPI at localhost:8000
         |
         | reads cached Azure retail prices
         v
 SQLite price cache
+
+Browser recalculates the selected setup as answers change
+        |
+        | POST /api/v1/model-comparisons after final review
+        v
+Comparison API selects related models and returns ordered results
 ```
 
-The browser collects supported inputs and displays results. All price lookup and cost calculations stay in the backend. The exact payload and response are documented in [docs/API_CONTRACT.md](docs/API_CONTRACT.md).
+The browser gets available models and rates from the backend, calculates the current
+selection locally, and sends only the selected model ID and raw inputs after the final
+review action. The current backend does not yet implement the model-comparison endpoint;
+real-mode final submission will fail until that endpoint is added. The exact planned
+payload and response are documented in [docs/API_CONTRACT.md](docs/API_CONTRACT.md).
 
 ## Frontend commands
 
@@ -123,13 +131,15 @@ npm run preview   # Preview the production build locally
 Run the backend from inside `backend/` so its local imports and SQLite path resolve correctly.
 
 ```powershell
-python -m uvicorn main:app --reload
+pdm run uvicorn src.main:app --reload
 ```
 
 | Method | Endpoint | Purpose |
 |---|---|---|
 | `GET` | `/health` | Check API health and price-cache status |
-| `POST` | `/api/v1/cost-estimates` | Calculate the configuration submitted by the frontend |
+| `GET` | `/api/v1/models` | Return model and infrastructure rates for live frontend estimates |
+| `POST` | `/api/v1/model-comparisons` | Planned endpoint that selects related models and returns their comparisons |
+| `POST` | `/api/v1/cost-estimates` | Legacy endpoint retained by the backend; the frontend no longer calls it |
 | `GET` | `/prices` | Inspect all cached price records |
 | `GET` | `/prices/by-service/{service_name}` | Filter cached records by Azure service |
 | `GET` | `/prices/{sku_key}` | Inspect one cached SKU |
@@ -138,22 +148,22 @@ Additional backend details are available in [backend/README.md](backend/README.m
 
 ## Troubleshooting
 
-### PowerShell blocks virtual-environment activation
+### PowerShell cannot find PDM
 
-Allow scripts only for the current terminal and activate again:
+Install PDM, then open a new terminal so the command is available:
 
 ```powershell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\.venv\Scripts\Activate.ps1
+python -m pip install --user pdm
 ```
 
-### The frontend says it cannot reach the estimate API
+### The frontend says it cannot reach the comparison API
 
 1. Confirm the backend terminal is still running.
 2. Open [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health).
 3. Confirm `VITE_USE_MOCK_API=false` in `frontend/.env`.
 4. Confirm `VITE_API_BASE_URL=http://localhost:8000`.
-5. Restart the frontend after changing `.env`.
+5. Confirm the backend has implemented `POST /api/v1/model-comparisons`.
+6. Restart the frontend after changing `.env`.
 
 ### The health endpoint reports `empty_cache`
 

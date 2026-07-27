@@ -13,7 +13,7 @@ export const HELP_TEXT = {
   },
   rag: {
     enabled:
-      "Document search, also called RAG, finds relevant information in your files and sends it to the AI with each question. Option C always shows the opposite RAG setting for comparison.",
+      "Document search, also called RAG, finds relevant information in your files and sends it to the AI with each question. This choice is sent with your other assumptions to the comparison service.",
     avgDocTokens:
       "This is the relevant document content retrieved and added to each AI request before the model answers.",
   },
