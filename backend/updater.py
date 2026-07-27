@@ -17,45 +17,78 @@ MAX_RETRIES = 3
 # Each entry maps a human-readable key to an Azure Retail Prices API filter.
 # To add a new SKU in the future, just add an entry here — the sync loop
 # picks it up automatically.
+#
+# OpenAI entries include "model" and "direction" metadata so the
+# GET /api/v1/models endpoint can group input/output pairs per model.
 # ---------------------------------------------------------------------------
+
+def _openai_sku(sku_name: str, model: str, direction: str) -> dict:
+    """Helper to build an OpenAI SKU manifest entry with exact skuName match."""
+    return {
+        "filter": (
+            "productName eq 'Azure OpenAI' "
+            f"and skuName eq '{sku_name}' "
+            "and armRegionName eq 'eastus'"
+        ),
+        "model": model,
+        "direction": direction,  # "input" or "output"
+    }
+
+
 SKU_MANIFEST = {
-    # ── GPT-4o (Scenario A & C) ──────────────────────────────────────────
-    "gpt-4o-input": {
-        "filter": (
-            "productName eq 'Azure OpenAI' "
-            "and contains(skuName, 'gpt 4o') "
-            "and contains(skuName, 'Input') "
-            "and armRegionName eq 'eastus'"
-        ),
-    },
-    "gpt-4o-output": {
-        "filter": (
-            "productName eq 'Azure OpenAI' "
-            "and contains(skuName, 'gpt 4o') "
-            "and contains(skuName, 'Output') "
-            "and armRegionName eq 'eastus'"
-        ),
-    },
+    # ── GPT-4o ────────────────────────────────────────────────────────────
+    "gpt-4o-input":  _openai_sku("gpt 4o 0513 Input regional",  "GPT-4o", "input"),
+    "gpt-4o-output": _openai_sku("gpt 4o 0513 Output regional", "GPT-4o", "output"),
 
-    # ── GPT-4.1 (Scenario B) ─────────────────────────────────────────────
-    "gpt-4.1-input": {
-        "filter": (
-            "productName eq 'Azure OpenAI' "
-            "and contains(skuName, 'gpt 4.1') "
-            "and contains(skuName, 'Inp') "
-            "and armRegionName eq 'eastus'"
-        ),
-    },
-    "gpt-4.1-output": {
-        "filter": (
-            "productName eq 'Azure OpenAI' "
-            "and contains(skuName, 'gpt 4.1') "
-            "and contains(skuName, 'Out') "
-            "and armRegionName eq 'eastus'"
-        ),
-    },
+    # ── GPT-4o mini ───────────────────────────────────────────────────────
+    "gpt-4o-mini-input":  _openai_sku("gpt-4o-mini-0718-Inp-regnl",  "GPT-4o mini", "input"),
+    "gpt-4o-mini-output": _openai_sku("gpt-4o-mini-0718-Outp-regnl", "GPT-4o mini", "output"),
 
-    # ── Azure AI Search — Basic tier (Scenario C: RAG) ───────────────────
+    # ── GPT-4.1 ───────────────────────────────────────────────────────────
+    "gpt-4.1-input":  _openai_sku("gpt 4.1 Inp regnl",  "GPT-4.1", "input"),
+    "gpt-4.1-output": _openai_sku("gpt 4.1 Outp regnl", "GPT-4.1", "output"),
+
+    # ── GPT-4.1 mini ──────────────────────────────────────────────────────
+    "gpt-4.1-mini-input":  _openai_sku("gpt 4.1 mini Inp regnl",  "GPT-4.1 mini", "input"),
+    "gpt-4.1-mini-output": _openai_sku("gpt 4.1 mini Outp regnl", "GPT-4.1 mini", "output"),
+
+    # ── GPT-4.1 nano ──────────────────────────────────────────────────────
+    "gpt-4.1-nano-input":  _openai_sku("gpt 4.1 nano Inp regnl",  "GPT-4.1 nano", "input"),
+    "gpt-4.1-nano-output": _openai_sku("gpt 4.1 nano Outp regnl", "GPT-4.1 nano", "output"),
+
+    # ── GPT-4 Turbo ───────────────────────────────────────────────────────
+    "gpt-4-turbo-input":  _openai_sku("gpt-4-turbo-128K Input-regional",  "GPT-4 Turbo", "input"),
+    "gpt-4-turbo-output": _openai_sku("gpt-4-turbo-128K Output-regional", "GPT-4 Turbo", "output"),
+
+    # ── GPT-3.5 Turbo ─────────────────────────────────────────────────────
+    "gpt-3.5-turbo-input":  _openai_sku("gpt-35-turbo-16K-0125 Input-regional",  "GPT-3.5 Turbo", "input"),
+    "gpt-3.5-turbo-output": _openai_sku("gpt-35-turbo-16K-0125 Output-regional", "GPT-3.5 Turbo", "output"),
+
+    # ── o1 ────────────────────────────────────────────────────────────────
+    "o1-input":  _openai_sku("o1 1217 Inp regnl",  "o1", "input"),
+    "o1-output": _openai_sku("o1 1217 Outp regnl", "o1", "output"),
+
+    # ── o1 mini ───────────────────────────────────────────────────────────
+    "o1-mini-input":  _openai_sku("o1 mini input regnl",  "o1 mini", "input"),
+    "o1-mini-output": _openai_sku("o1 mini output regnl", "o1 mini", "output"),
+
+    # ── o3 ────────────────────────────────────────────────────────────────
+    "o3-input":  _openai_sku("o3 0416 Inp regnl",  "o3", "input"),
+    "o3-output": _openai_sku("o3 0416 Outp regnl", "o3", "output"),
+
+    # ── o3 mini ───────────────────────────────────────────────────────────
+    "o3-mini-input":  _openai_sku("o3 mini 0131 input regnl",  "o3 mini", "input"),
+    "o3-mini-output": _openai_sku("o3 mini 0131 output regnl", "o3 mini", "output"),
+
+    # ── o4-mini (may not be available yet — gracefully skipped) ───────────
+    "o4-mini-input":  _openai_sku("o4 mini Inp regnl",  "o4-mini", "input"),
+    "o4-mini-output": _openai_sku("o4 mini Outp regnl", "o4-mini", "output"),
+
+    # ═════════════════════════════════════════════════════════════════════
+    # Infrastructure SKUs (non-OpenAI)
+    # ═════════════════════════════════════════════════════════════════════
+
+    # ── Azure AI Search — Basic tier (RAG) ────────────────────────────────
     "ai-search-basic": {
         "filter": (
             "serviceName eq 'Azure Cognitive Search' "

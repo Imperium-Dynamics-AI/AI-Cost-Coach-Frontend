@@ -32,8 +32,18 @@ DAYS_PER_MONTH = 30
 # Maps frontend model display names → cached SKU key pairs in our database.
 # To support a new model, add its SKU filters in updater.py and a mapping here.
 MODEL_SKU_MAP: dict[str, dict[str, str]] = {
-    "GPT-4o": {"input": "gpt-4o-input", "output": "gpt-4o-output"},
-    "GPT-4.1": {"input": "gpt-4.1-input", "output": "gpt-4.1-output"},
+    "GPT-4o":        {"input": "gpt-4o-input",        "output": "gpt-4o-output"},
+    "GPT-4o mini":   {"input": "gpt-4o-mini-input",   "output": "gpt-4o-mini-output"},
+    "GPT-4.1":       {"input": "gpt-4.1-input",       "output": "gpt-4.1-output"},
+    "GPT-4.1 mini":  {"input": "gpt-4.1-mini-input",  "output": "gpt-4.1-mini-output"},
+    "GPT-4.1 nano":  {"input": "gpt-4.1-nano-input",  "output": "gpt-4.1-nano-output"},
+    "GPT-4 Turbo":   {"input": "gpt-4-turbo-input",   "output": "gpt-4-turbo-output"},
+    "GPT-3.5 Turbo": {"input": "gpt-3.5-turbo-input", "output": "gpt-3.5-turbo-output"},
+    "o1":            {"input": "o1-input",             "output": "o1-output"},
+    "o1 mini":       {"input": "o1-mini-input",        "output": "o1-mini-output"},
+    "o3":            {"input": "o3-input",             "output": "o3-output"},
+    "o3 mini":       {"input": "o3-mini-input",        "output": "o3-mini-output"},
+    "o4-mini":       {"input": "o4-mini-input",        "output": "o4-mini-output"},
 }
 
 
