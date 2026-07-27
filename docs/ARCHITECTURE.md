@@ -24,6 +24,7 @@ frontend/src/
 - User-facing labels use plain language. Azure terminology is retained as supporting text where it helps implementation teams.
 - Every unfamiliar input has contextual help available by mouse hover, keyboard focus, and tap.
 - Form state and API request state are kept separate.
+- Guided-form answers and the current step are stored as a versioned browser draft; API results are not persisted.
 - API payload construction is a pure function covered by contract tests against the current backend inputs.
 
 ## Adding a field

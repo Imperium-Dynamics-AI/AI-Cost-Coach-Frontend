@@ -5,21 +5,36 @@ import { USING_PLACEHOLDER_API } from "./api/costEstimateApi";
 import { useCalculatorForm } from "./hooks/useCalculatorForm";
 import { useCostEstimate } from "./hooks/useCostEstimate";
 import { buildEstimatePayload } from "./utils/buildEstimatePayload";
-import { SCENARIOS } from "./config/calculatorConfig";
+import { createComparisonScenarios } from "./config/calculatorConfig";
 
 export function CostEstimatorPage() {
-  const [activeTab, setActiveTab] = useState("A");
-  const { values, setValue } = useCalculatorForm();
+  const [activeScenarioId, setActiveScenarioId] = useState("A");
+  const {
+    values,
+    currentStep,
+    draftRestored,
+    setValue,
+    setCurrentStep,
+    resetForm,
+  } = useCalculatorForm();
   const { status, result, error, calculate, reset } = useCostEstimate();
+  const scenarios = createComparisonScenarios(values);
 
   const handleValueChange = (path, value) => {
     setValue(path, value);
+    setActiveScenarioId("A");
     reset();
   };
 
-  const handleSubmit = (event) => {
-    event.preventDefault();
+  const handleSubmit = () => {
+    setActiveScenarioId("A");
     calculate(buildEstimatePayload(values));
+  };
+
+  const handleReset = () => {
+    resetForm();
+    setActiveScenarioId("A");
+    reset();
   };
 
   return (
@@ -28,10 +43,10 @@ export function CostEstimatorPage() {
         <header className="page-header">
           <div>
             <span className="page-header__kicker">Azure planning tool</span>
-            <h1>Plan your AI solution budget</h1>
+            <h1>Build your AI cost estimate</h1>
             <p>
-              Enter the usage assumptions supported by the pricing service. We’ll compare
-              GPT-4o, GPT-4.1, and GPT-4o with document search.
+              Answer a few business questions and we’ll turn your choices into a clear
+              Azure AI cost estimate.
             </p>
           </div>
           <div className="page-header__badge" aria-label="All estimates are in US dollars">
@@ -57,16 +72,20 @@ export function CostEstimatorPage() {
           <CalculatorForm
             values={values}
             setValue={handleValueChange}
+            currentStep={currentStep}
+            setCurrentStep={setCurrentStep}
+            draftRestored={draftRestored}
             onSubmit={handleSubmit}
+            onReset={handleReset}
             status={status}
           />
           <EstimateResults
             status={status}
             result={result}
             error={error}
-            scenarios={SCENARIOS}
-            activeTab={activeTab}
-            onTabChange={setActiveTab}
+            scenarios={scenarios}
+            activeScenarioId={activeScenarioId}
+            onScenarioChange={setActiveScenarioId}
             computeEnabled={values.compute.enabled}
             growthPct={values.global.growthPct}
           />

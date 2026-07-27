@@ -1,6 +1,6 @@
 # Azure AI Cost Coach
 
-Azure AI Cost Coach is a full-stack proof-of-concept for estimating and comparing the monthly cost of Azure AI solution patterns.
+Azure AI Cost Coach is a full-stack proof-of-concept that guides a business user through a short questionnaire and compares model and RAG configuration options under shared usage assumptions.
 
 ```text
 AI-Cost-Coach/
@@ -129,7 +129,7 @@ python -m uvicorn main:app --reload
 | Method | Endpoint | Purpose |
 |---|---|---|
 | `GET` | `/health` | Check API health and price-cache status |
-| `POST` | `/api/v1/cost-estimates` | Calculate and compare scenarios A, B, and C |
+| `POST` | `/api/v1/cost-estimates` | Calculate the configuration submitted by the frontend |
 | `GET` | `/prices` | Inspect all cached price records |
 | `GET` | `/prices/by-service/{service_name}` | Filter cached records by Azure service |
 | `GET` | `/prices/{sku_key}` | Inspect one cached SKU |

@@ -1,28 +1,32 @@
 export const HELP_TEXT = {
   openai: {
+    model:
+      "The selected model is sent directly to the pricing service and determines the input and output token rates used for your estimate.",
     users:
-      "The number of active people expected to use the solution. The backend multiplies this by daily interactions and 30 days to estimate monthly request volume.",
+      "The number of active people expected to use the solution. The calculator applies the daily usage below to every active user.",
     requestsPerDay:
-      "How many questions or AI-powered actions one person performs on an average day. The backend requires at least one interaction per person.",
+      "One question and its answer count as one interaction. The backend requires at least one interaction per active user.",
     avgPromptTokens:
-      "The average amount of user and application text sent with each request. Tokens are small pieces of text used for AI billing.",
+      "Include the user’s question, application instructions, and recent conversation history. As a rough guide, 1,000 tokens is about 750 English words.",
     avgCompletionTokens:
-      "The average length of the AI response. Longer responses process more output tokens and generally cost more.",
+      "This is the typical length of the AI response. Longer answers process more output tokens and generally cost more.",
   },
   rag: {
+    enabled:
+      "Document search, also called RAG, finds relevant information in your files and sends it to the AI with each question. Option C always shows the opposite RAG setting for comparison.",
     avgDocTokens:
-      "For Option C, this is the average amount of text retrieved from your documents and added to each AI prompt.",
+      "This is the relevant document content retrieved and added to each AI request before the model answers.",
   },
   storage: {
     docStorageGB:
-      "For Option C, this is the total space used by source documents. The backend uses it to estimate Blob Storage cost.",
+      "Enter the approximate total size of the original documents stored for the solution.",
   },
   compute: {
     enabled:
-      "Turn this on to include one Basic B1 App Service instance in every scenario. The current backend supports only this hosting size.",
+      "The current pricing service can include one Azure App Service Basic B1 instance for hosting the web application.",
   },
   global: {
     growthPct:
-      "The expected month-over-month usage growth. The backend compounds it for the annual estimate and applies it to the next-month projection.",
+      "This affects the next-month and annual projections. It does not change the current monthly estimate.",
   },
 };

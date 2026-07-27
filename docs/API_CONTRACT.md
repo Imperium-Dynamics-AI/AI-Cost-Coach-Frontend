@@ -1,20 +1,16 @@
 # Cost estimate API contract
 
-This document records the request currently sent by the frontend to the existing FastAPI calculation endpoint. The frontend base URL is configured with `VITE_API_BASE_URL`.
+This document records how the guided frontend questionnaire maps a business user’s answers to the existing FastAPI endpoint. The frontend base URL is configured with `VITE_API_BASE_URL`.
 
 ## Endpoint
 
 `POST /api/v1/cost-estimates`
 
-Request headers:
-
 ```http
 Content-Type: application/json
 ```
 
-## Request
-
-The frontend intentionally sends only values consumed by the current calculation engine. Other fields accepted by the broader Pydantic schema are omitted until the backend uses them in a calculation.
+## Request with document search enabled
 
 ```json
 {
@@ -22,9 +18,9 @@ The frontend intentionally sends only values consumed by the current calculation
     "compute": false
   },
   "scenarios": [
-    { "id": "A", "model": "GPT-4o", "forceRag": false },
-    { "id": "B", "model": "GPT-4.1", "forceRag": false },
-    { "id": "C", "model": "GPT-4o", "forceRag": true }
+    { "id": "A", "model": "GPT-4o", "forceRag": true },
+    { "id": "B", "model": "GPT-4.1", "forceRag": true },
+    { "id": "C", "model": "GPT-4o", "forceRag": false }
   ],
   "openai": {
     "users": 500,
@@ -44,36 +40,82 @@ The frontend intentionally sends only values consumed by the current calculation
 }
 ```
 
-### Field mapping
+The selected model is written to Options A and C. Option B uses the other supported model. Options A and B use the user’s RAG choice, while Option C always uses the opposite RAG setting. All three options share the same usage, hosting, and growth assumptions.
 
-| Frontend input | Request field | How the backend uses it |
+The results UI displays scenarios `A`, `B`, and `C` as clickable **Option A**, **Option B**, and **Option C** cards. Selecting an option shows its detailed cost breakdown; the side-by-side summary remains available below it.
+
+When the user disables document search:
+
+- Options A and B have `forceRag: false`.
+- Option C has `forceRag: true`.
+- The `rag` and `storage` objects remain in the payload because Option C uses them.
+
+## Questionnaire mapping
+
+| Business question | Request field | Backend behavior |
 |---|---|---|
+| Which AI model should be primary? | `scenarios[0].model` | Prices the user’s selected model first |
+| Alternative model | `scenarios[1].model` | Automatically prices the other supported model for comparison |
+| Use business documents? | Options A and B `forceRag` | Applies the selected RAG setting to both model choices |
+| Opposite RAG comparison | Option C `forceRag` | Prices the selected model with the opposite RAG setting |
 | Active people | `openai.users` | Multiplies monthly request volume |
-| Interactions per person/day | `openai.requestsPerDay` | Multiplies monthly request volume using 30 days |
-| Typical user message size | `openai.avgPromptTokens` | Calculates model input-token cost |
-| Typical AI answer size | `openai.avgCompletionTokens` | Calculates model output-token cost |
-| Document text per request | `rag.avgDocTokens` | Adds prompt tokens to the RAG scenario |
-| Source documents stored | `storage.docStorageGB` | Calculates Blob Storage cost for the RAG scenario |
-| Include App Service | `resources.compute` | Includes one cached Basic B1 App Service price |
+| Interactions per person/day | `openai.requestsPerDay` | Multiplies request volume using 30 days |
+| Average input size | `openai.avgPromptTokens` | Calculates model input-token cost |
+| Average response size | `openai.avgCompletionTokens` | Calculates model output-token cost |
+| Retrieved document text | `rag.avgDocTokens` | Adds document context to each prompt when RAG is enabled |
+| Source documents stored | `storage.docStorageGB` | Calculates Blob Storage cost when RAG is enabled |
+| Include app hosting? | `resources.compute` | Includes one Basic B1 App Service instance |
 | Expected monthly growth | `global.growthPct` | Calculates next-month and compounded annual projections |
 
-Scenario definitions are controlled by the frontend and are not editable form inputs. `forceRag` makes Option C include AI Search, document storage, and retrieved document context.
-
 ## Successful response
-
-All monetary values are numbers in the declared currency. A resource cost may be `null` only when the backend cannot find a required cached price; the backend includes a warning in that case.
 
 ```json
 {
   "currency": "USD",
   "totalMonthlyRequests": 75000,
-  "cheapestId": "A",
+  "cheapestId": "C",
   "warnings": [],
   "scenarios": {
     "A": {
-      "name": "GPT-4o",
+      "name": "GPT-4o + RAG",
       "breakdown": {
         "openai": 120.5,
+        "rag": 70,
+        "storage": 0.1,
+        "compute": 0,
+        "apim": 0,
+        "monitoring": 0,
+        "identity": 0,
+        "finetuning": 0
+      },
+      "monthlyTotal": 190.6,
+      "annualTotal": 4068.46,
+      "costPerUser": 0.3812,
+      "costPerConversation": 0.0025,
+      "nextMonthProjected": 209.66
+    },
+    "B": {
+      "name": "GPT-4.1 + RAG",
+      "breakdown": {
+        "openai": 146.25,
+        "rag": 70,
+        "storage": 0.1,
+        "compute": 0,
+        "apim": 0,
+        "monitoring": 0,
+        "identity": 0,
+        "finetuning": 0
+      },
+      "monthlyTotal": 216.35,
+      "annualTotal": 4618.45,
+      "costPerUser": 0.4327,
+      "costPerConversation": 0.0029,
+      "nextMonthProjected": 237.99
+    },
+    "C": {
+      "name": "GPT-4o",
+      "breakdown": {
+        "openai": 90.25,
         "rag": 0,
         "storage": 0,
         "compute": 0,
@@ -82,21 +124,21 @@ All monetary values are numbers in the declared currency. A resource cost may be
         "identity": 0,
         "finetuning": 0
       },
-      "monthlyTotal": 120.5,
-      "annualTotal": 1446,
-      "costPerUser": 0.241,
-      "costPerConversation": 0.0016,
-      "nextMonthProjected": 132.55
+      "monthlyTotal": 90.25,
+      "annualTotal": 1926.13,
+      "costPerUser": 0.1805,
+      "costPerConversation": 0.0012,
+      "nextMonthProjected": 99.28
     }
   }
 }
 ```
 
-The actual response contains entries for scenario IDs `A`, `B`, and `C`; the example abbreviates the repeated scenario structure.
+If a required cached price is unavailable, affected values may be `null` and the backend includes an explanation in `warnings`.
 
-## Error response
+## Validation error
 
-The backend returns validation failures with HTTP `422` and this stable shape:
+The backend returns invalid inputs with HTTP `422`:
 
 ```json
 {
@@ -107,3 +149,7 @@ The backend returns validation failures with HTTP `422` and this stable shape:
   }
 }
 ```
+
+## Draft storage
+
+Questionnaire answers and the current step are saved locally under `azure-cost-coach:estimate-draft:v1`. This browser draft is not sent anywhere until the user selects **Compare option costs**. API results, credentials, and secrets are never stored in the draft.
