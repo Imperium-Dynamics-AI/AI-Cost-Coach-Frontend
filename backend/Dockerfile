@@ -14,8 +14,8 @@ RUN pip install --no-cache-dir pdm
 # Copy PDM dependency metadata for caching
 COPY pyproject.toml pdm.lock* ./
 
-# Install dependencies into container via PDM
-RUN pdm install --prod --no-editable
+# Install dependencies into container via PDM (--no-self skips building project root as a library package)
+RUN pdm install --prod --no-editable --no-self
 
 # Copy backend source code
 COPY . .
