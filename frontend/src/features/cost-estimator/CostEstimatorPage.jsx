@@ -49,7 +49,7 @@ export function CostEstimatorPage() {
 
   const handleSubmit = () => {
     setActiveComparisonId(null);
-    compare(buildModelComparisonPayload(values, models));
+    compare(buildModelComparisonPayload(values, models, catalog));
   };
 
   const handleReset = () => {

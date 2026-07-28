@@ -38,14 +38,27 @@ After a model is selected, the browser recalculates only that selected setup whe
 answer changes. It does not generate comparison models or send questionnaire data before
 the final review action.
 
-## Planned model-comparison endpoint
+## Model comparison (implemented via the existing cost-estimates endpoint)
 
-The final review action sends:
+`POST /api/v1/model-comparisons` was never implemented on the backend and is not used.
+Instead, the final review action builds comparisons client-side and prices them through
+the existing `POST /api/v1/cost-estimates` endpoint:
 
-`POST /api/v1/model-comparisons`
+1. The frontend ranks every fully-priced catalog model (from `GET /api/v1/models`) by
+   cost for the exact usage entered in the questionnaire (`src/features/cost-estimator/
+   utils/pickComparisonModels.js`).
+2. It picks the selected model plus its immediate cheaper and pricier neighbor by cost
+   (whichever exist).
+3. It sends one `POST /api/v1/cost-estimates` request with one scenario per model —
+   `{ id, model, forceRag }` — where every scenario shares identical deployment
+   assumptions (users, tokens, RAG, compute, growth). Only the model differs.
+4. The response's `scenarios` map is joined back with the frontend-generated
+   `label`/`relationship`/`reason` text to render the same `comparisons[]` shape
+   described below.
 
-The path can be overridden with `VITE_MODEL_COMPARISONS_PATH` while the backend contract
-is being implemented.
+No model-family or capability logic lives on the backend; "related models" means
+"the nearest-priced neighbors for this exact usage," which is something the frontend
+already has all the data to compute deterministically.
 
 ### Request
 

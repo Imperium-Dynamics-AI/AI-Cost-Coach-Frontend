@@ -21,6 +21,37 @@ function formatRelationship(value) {
   return value.replaceAll(/[-_]/g, " ");
 }
 
+// Both differences are relative to the selected model, not the cheapest —
+// "Baseline" always means "what you picked," so a pricier alternative
+// still reads clearly as "+$X more" rather than implying it's the odd one out.
+function formatDollarDifference(monthlyTotal, baselineTotal, currency) {
+  if (!Number.isFinite(monthlyTotal) || !Number.isFinite(baselineTotal)) {
+    return "—";
+  }
+
+  const diff = monthlyTotal - baselineTotal;
+  if (Math.abs(diff) < 0.005) {
+    return "Baseline";
+  }
+
+  const amount = formatCurrency(Math.abs(diff), currency);
+  return diff < 0 ? `Save ${amount}/mo` : `+${amount}/mo`;
+}
+
+function formatPercentDifference(monthlyTotal, baselineTotal) {
+  if (!Number.isFinite(monthlyTotal) || !Number.isFinite(baselineTotal) || baselineTotal === 0) {
+    return "—";
+  }
+
+  const diff = monthlyTotal - baselineTotal;
+  if (Math.abs(diff) < 0.005) {
+    return "Baseline";
+  }
+
+  const pct = Math.abs(diff / baselineTotal) * 100;
+  return diff < 0 ? `${pct.toFixed(0)}% cheaper` : `${pct.toFixed(0)}% more`;
+}
+
 function ComparisonTabs({ comparisons, activeComparisonId, onComparisonChange }) {
   return (
     <div
@@ -108,11 +139,14 @@ function ReceiptLine({ label, value, currency }) {
 }
 
 function ResultsTable({ result, comparisons }) {
+  const baseline = comparisons.find((c) => c.relationship === "selected") ?? comparisons[0];
+  const baselineTotal = baseline?.estimate?.monthlyTotal;
+
   return (
     <section className="comparison-card" aria-labelledby="comparison-heading">
       <div className="card-heading-row">
         <div>
-          <span className="eyebrow">Backend-selected model family</span>
+          <span className="eyebrow">Nearest-priced alternatives</span>
           <h2 id="comparison-heading">Compare returned models</h2>
         </div>
         {Number.isFinite(result.totalMonthlyRequests) ? (
@@ -128,6 +162,8 @@ function ResultsTable({ result, comparisons }) {
             <tr>
               <th scope="col">Model</th>
               <th scope="col">Monthly</th>
+              <th scope="col">Difference</th>
+              <th scope="col">vs. selected</th>
               <th scope="col">Annual</th>
               <th scope="col">Per person</th>
               <th scope="col">Per interaction</th>
@@ -137,6 +173,7 @@ function ResultsTable({ result, comparisons }) {
             {comparisons.map((comparison) => {
               const estimate = comparison.estimate;
               const isLowest = result.cheapestId === comparison.id;
+              const isBaseline = comparison.id === baseline?.id;
 
               return (
                 <tr key={comparison.id} className={isLowest ? "comparison-row--best" : ""}>
@@ -148,6 +185,12 @@ function ResultsTable({ result, comparisons }) {
                     </small>
                   </th>
                   <td>{formatCurrency(estimate.monthlyTotal, result.currency)}</td>
+                  <td className={isBaseline ? "diff-baseline" : estimate.monthlyTotal < baselineTotal ? "diff-cheaper" : "diff-pricier"}>
+                    {formatDollarDifference(estimate.monthlyTotal, baselineTotal, result.currency)}
+                  </td>
+                  <td className={isBaseline ? "diff-baseline" : estimate.monthlyTotal < baselineTotal ? "diff-cheaper" : "diff-pricier"}>
+                    {formatPercentDifference(estimate.monthlyTotal, baselineTotal)}
+                  </td>
                   <td>{formatCurrency(estimate.annualTotal, result.currency)}</td>
                   <td>{formatCurrency(estimate.costPerUser, result.currency, 3)}</td>
                   <td>

@@ -1,6 +1,9 @@
 const MODELS_PATH = "/api/v1/models";
-const COMPARISONS_PATH =
-  import.meta.env?.VITE_MODEL_COMPARISONS_PATH || "/api/v1/model-comparisons";
+// The dedicated /api/v1/model-comparisons endpoint from docs/API_CONTRACT.md
+// was never implemented on the backend. Comparisons are built client-side
+// (see pickComparisonModels.js) and priced via the existing, working
+// /api/v1/cost-estimates endpoint instead.
+const ESTIMATES_PATH = "/api/v1/cost-estimates";
 const API_BASE_URL = (import.meta.env?.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
 
 export const USING_PLACEHOLDER_API = import.meta.env?.VITE_USE_MOCK_API === "true";
@@ -47,18 +50,8 @@ function createPlaceholderEstimate(name) {
   };
 }
 
-async function requestPlaceholderComparisons(payload) {
+async function requestPlaceholderComparisons({ meta, costEstimateRequest }) {
   await new Promise((resolve) => window.setTimeout(resolve, 350));
-
-  const selectedModel = PLACEHOLDER_CATALOG.models.find(
-    (model) => model.id === payload.selectedModelId,
-  ) ?? {
-    id: payload.selectedModelId,
-    name: payload.selectedModelId,
-  };
-  const estimateName = payload.rag.enabled
-    ? `${selectedModel.name} + your content`
-    : selectedModel.name;
 
   return {
     currency: PLACEHOLDER_CATALOG.currency,
@@ -66,20 +59,18 @@ async function requestPlaceholderComparisons(payload) {
     cheapestId: null,
     warnings: [],
     placeholder: true,
-    comparisons: [
-      {
-        id: "selected",
-        label: "Selected model",
-        relationship: "selected",
-        reason: "Preview mode returns the selected model until the comparison API is connected.",
-        model: selectedModel,
-        configuration: {
-          ragEnabled: payload.rag.enabled,
-          computeEnabled: payload.resources.compute,
-        },
-        estimate: createPlaceholderEstimate(estimateName),
+    comparisons: meta.map((item) => ({
+      id: item.id,
+      label: item.label,
+      relationship: item.relationship,
+      reason: "Preview mode — connect the pricing service for real numbers.",
+      model: { id: item.modelId, name: item.modelName },
+      configuration: {
+        ragEnabled: costEstimateRequest.scenarios.find((s) => s.id === item.id)?.forceRag ?? false,
+        computeEnabled: costEstimateRequest.resources.compute,
       },
-    ],
+      estimate: createPlaceholderEstimate(item.modelName),
+    })),
   };
 }
 
@@ -200,20 +191,48 @@ export async function requestModelCatalog() {
   return normalizeModelCatalog(await response.json());
 }
 
-export async function requestModelComparisons(payload) {
+export async function requestModelComparisons({ meta, costEstimateRequest }) {
   if (USING_PLACEHOLDER_API) {
-    return requestPlaceholderComparisons(payload);
+    return requestPlaceholderComparisons({ meta, costEstimateRequest });
   }
 
-  const response = await fetch(`${API_BASE_URL}${COMPARISONS_PATH}`, {
+  const response = await fetch(`${API_BASE_URL}${ESTIMATES_PATH}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(costEstimateRequest),
   });
 
   if (!response.ok) {
     throw new Error(await readErrorMessage(response));
   }
 
-  return normalizeComparisonResponse(await response.json());
+  const result = await response.json();
+
+  const comparisons = meta.map((item) => {
+    const scenario = result.scenarios?.[item.id];
+    if (!scenario) {
+      throw new Error(`The pricing service did not return scenario '${item.id}'.`);
+    }
+    return {
+      id: item.id,
+      label: item.label,
+      relationship: item.relationship,
+      reason: item.reason,
+      model: { id: item.modelId, name: item.modelName },
+      configuration: {
+        ragEnabled:
+          costEstimateRequest.scenarios.find((s) => s.id === item.id)?.forceRag ?? false,
+        computeEnabled: costEstimateRequest.resources.compute,
+      },
+      estimate: scenario,
+    };
+  });
+
+  return normalizeComparisonResponse({
+    currency: result.currency,
+    totalMonthlyRequests: result.totalMonthlyRequests,
+    cheapestId: result.cheapestId,
+    warnings: result.warnings,
+    comparisons,
+  });
 }
