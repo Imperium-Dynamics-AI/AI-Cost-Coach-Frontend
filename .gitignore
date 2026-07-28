@@ -49,3 +49,5 @@ coverage/
 .pdm-build/
 __pypackages__/
 .pdm-python
+
+*.tar
