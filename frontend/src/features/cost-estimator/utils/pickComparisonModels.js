@@ -15,16 +15,46 @@ export function pickComparisonModels(values, catalog) {
         { ...values, openai: { ...values.openai, modelId: model.id } },
         catalog,
       );
-      return { model, monthlyTotal: estimate?.scenario?.monthlyTotal ?? null };
+      // Infrastructure is identical for every scenario, so it must not block
+      // model ranking when one of those shared rates is temporarily missing.
+      // The backend can still return a null final total for unavailable rates.
+      return {
+        model,
+        monthlyModelCost: estimate?.scenario?.breakdown?.openai ?? null,
+      };
     })
-    .filter((entry) => entry.monthlyTotal !== null)
-    .sort((a, b) => a.monthlyTotal - b.monthlyTotal);
+    .filter((entry) => Number.isFinite(entry.monthlyModelCost))
+    .sort(
+      (a, b) =>
+        a.monthlyModelCost - b.monthlyModelCost ||
+        a.model.id.localeCompare(b.model.id),
+    );
 
   const selectedIndex = ranked.findIndex(
     (entry) => entry.model.id === values.openai.modelId,
   );
   if (selectedIndex === -1) {
     return null;
+  }
+
+  const selectedCost = ranked[selectedIndex].monthlyModelCost;
+  let cheaperModel = null;
+  let pricierModel = null;
+
+  // Skip equal-cost entries so an alternative is never described as
+  // cheaper/pricier when the calculated cents are actually the same.
+  for (let index = selectedIndex - 1; index >= 0; index -= 1) {
+    if (ranked[index].monthlyModelCost < selectedCost) {
+      cheaperModel = ranked[index].model;
+      break;
+    }
+  }
+
+  for (let index = selectedIndex + 1; index < ranked.length; index += 1) {
+    if (ranked[index].monthlyModelCost > selectedCost) {
+      pricierModel = ranked[index].model;
+      break;
+    }
   }
 
   const comparisons = [
@@ -37,23 +67,23 @@ export function pickComparisonModels(values, catalog) {
     },
   ];
 
-  if (selectedIndex > 0) {
+  if (cheaperModel) {
     comparisons.push({
       id: "cheaper",
       label: "Lower-cost option",
       relationship: "cheaper",
       reason: "A lower-cost model for the exact same usage.",
-      model: ranked[selectedIndex - 1].model,
+      model: cheaperModel,
     });
   }
 
-  if (selectedIndex < ranked.length - 1) {
+  if (pricierModel) {
     comparisons.push({
       id: "pricier",
       label: "Higher-cost option",
       relationship: "more-expensive",
       reason: "A higher-cost model for the exact same usage.",
-      model: ranked[selectedIndex + 1].model,
+      model: pricierModel,
     });
   }
 

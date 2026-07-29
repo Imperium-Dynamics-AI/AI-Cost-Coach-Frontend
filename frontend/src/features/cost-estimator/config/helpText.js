@@ -1,7 +1,7 @@
 export const HELP_TEXT = {
   openai: {
     model:
-      "The selected model is sent directly to the pricing service and determines the input and output token rates used for your estimate.",
+      "The selected model is the comparison baseline. Nearby lower- and higher-cost catalog models are priced with the same usage assumptions after review.",
     users:
       "The number of active people expected to use the solution. The calculator applies the daily usage below to every active user.",
     requestsPerDay:
@@ -13,7 +13,7 @@ export const HELP_TEXT = {
   },
   rag: {
     enabled:
-      "Document search, also called RAG, finds relevant information in your files and sends it to the AI with each question. This choice is sent with your other assumptions to the comparison service.",
+      "Document search, also called RAG, finds relevant information in your files and sends it to the AI with each question. This choice is applied equally to every priced comparison scenario.",
     avgDocTokens:
       "This is the relevant document content retrieved and added to each AI request before the model answers.",
   },

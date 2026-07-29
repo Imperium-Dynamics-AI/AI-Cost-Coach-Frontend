@@ -49,8 +49,12 @@ export function buildModelComparisonPayload(values, models, catalog) {
         avgPromptTokens: values.openai.avgPromptTokens,
         avgCompletionTokens: values.openai.avgCompletionTokens,
       },
-      rag: { avgDocTokens: values.rag.avgDocTokens },
-      storage: { docStorageGB: values.storage.docStorageGB },
+      // Hidden RAG fields are irrelevant when RAG is disabled. Normalizing
+      // them prevents an old invalid draft value from causing a backend 422.
+      rag: { avgDocTokens: values.rag.enabled ? values.rag.avgDocTokens : 0 },
+      storage: {
+        docStorageGB: values.rag.enabled ? values.storage.docStorageGB : 0,
+      },
       global: { growthPct: values.global.growthPct },
     },
   };

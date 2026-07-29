@@ -1,8 +1,7 @@
 # Frontend API contract
 
-The frontend uses an existing model catalog endpoint for live estimates and is prepared
-for a separate model-comparison endpoint. The frontend base URL is configured with
-`VITE_API_BASE_URL`.
+The frontend uses the existing model catalog and cost-estimate endpoints for live and
+final comparisons. The frontend base URL is configured with `VITE_API_BASE_URL`.
 
 ## Model catalog and live estimate
 
@@ -34,9 +33,9 @@ The model ID is the stable form value. The returned names and prices are display
 live-calculation data. Models without both token prices remain visible but cannot be
 selected.
 
-After a model is selected, the browser recalculates only that selected setup whenever an
-answer changes. It does not generate comparison models or send questionnaire data before
-the final review action.
+After a model is selected, the browser recalculates only that setup whenever an answer
+changes. It does not generate comparison scenarios or send questionnaire data until the
+final review action.
 
 ## Model comparison (implemented via the existing cost-estimates endpoint)
 
@@ -45,16 +44,17 @@ Instead, the final review action builds comparisons client-side and prices them 
 the existing `POST /api/v1/cost-estimates` endpoint:
 
 1. The frontend ranks every fully-priced catalog model (from `GET /api/v1/models`) by
-   cost for the exact usage entered in the questionnaire (`src/features/cost-estimator/
-   utils/pickComparisonModels.js`).
-2. It picks the selected model plus its immediate cheaper and pricier neighbor by cost
-   (whichever exist).
+   model-token cost for the exact usage entered in the questionnaire (`src/features/
+   cost-estimator/utils/pickComparisonModels.js`). Shared infrastructure costs do not
+   affect the ordering.
+2. It picks the selected model plus its nearest strictly lower- and higher-cost neighbor
+   (whichever exist). Equal-cost entries are not mislabeled as cheaper or pricier.
 3. It sends one `POST /api/v1/cost-estimates` request with one scenario per model —
    `{ id, model, forceRag }` — where every scenario shares identical deployment
    assumptions (users, tokens, RAG, compute, growth). Only the model differs.
-4. The response's `scenarios` map is joined back with the frontend-generated
-   `label`/`relationship`/`reason` text to render the same `comparisons[]` shape
-   described below.
+4. The response's `scenarios` map is joined back with frontend-generated model metadata,
+   labels, relationships, and reasons to create the `comparisons[]` view model rendered
+   by the UI.
 
 No model-family or capability logic lives on the backend; "related models" means
 "the nearest-priced neighbors for this exact usage," which is something the frontend
@@ -64,10 +64,26 @@ already has all the data to compute deterministically.
 
 ```json
 {
-  "selectedModelId": "gpt-4.1",
   "resources": {
     "compute": true
   },
+  "scenarios": [
+    {
+      "id": "selected",
+      "model": "GPT-4.1",
+      "forceRag": true
+    },
+    {
+      "id": "cheaper",
+      "model": "GPT-4.1 mini",
+      "forceRag": true
+    },
+    {
+      "id": "pricier",
+      "model": "GPT-4o",
+      "forceRag": true
+    }
+  ],
   "openai": {
     "users": 500,
     "requestsPerDay": 5,
@@ -75,7 +91,6 @@ already has all the data to compute deterministically.
     "avgCompletionTokens": 400
   },
   "rag": {
-    "enabled": true,
     "avgDocTokens": 600
   },
   "storage": {
@@ -87,16 +102,20 @@ already has all the data to compute deterministically.
 }
 ```
 
+Scenario IDs, model names, and `forceRag` are generated from the catalog by the frontend.
+The `openai`, `rag`, `storage`, `resources`, and `global` assumptions apply equally to
+every scenario; only the model changes. When RAG is disabled, the frontend sends zero for
+the unused RAG token and storage inputs.
+
 The request deliberately contains no:
 
-- Client-generated scenarios or option IDs
-- Comparison model names
-- Model family or relationship hints
 - Catalog prices
 - Browser-calculated totals
+- Browser-only comparison labels, relationships, or reasons
 
-The backend owns model-family discovery, comparison selection, ordering, labels, reasons,
-configuration choices, and final calculations.
+The frontend owns comparison selection, scenario order, labels, relationships, and
+reasons. The backend calculates every supplied scenario and identifies the cheapest
+scenario for which a complete monthly total is available.
 
 ### Successful response
 
@@ -104,94 +123,92 @@ configuration choices, and final calculations.
 {
   "currency": "USD",
   "totalMonthlyRequests": 75000,
-  "cheapestId": "compact",
+  "cheapestId": "cheaper",
   "warnings": [],
-  "comparisons": [
-    {
-      "id": "selected",
-      "label": "Selected model",
-      "relationship": "selected",
-      "reason": "This is the model selected in the questionnaire.",
-      "model": {
-        "id": "gpt-4.1",
-        "name": "GPT-4.1",
-        "family": "gpt-4.1",
-        "tier": "flagship"
+  "scenarios": {
+    "selected": {
+      "name": "GPT-4.1 + your content",
+      "breakdown": {
+        "openai": 450,
+        "rag": 102.2,
+        "storage": 0.1,
+        "compute": 54.75,
+        "apim": 0,
+        "monitoring": 0,
+        "identity": 0,
+        "finetuning": 0
       },
-      "configuration": {
-        "ragEnabled": true,
-        "computeEnabled": true
-      },
-      "estimate": {
-        "name": "GPT-4.1 + your content",
-        "breakdown": {
-          "openai": 95.15,
-          "rag": 102.2,
-          "storage": 0.1,
-          "compute": 54.75
-        },
-        "monthlyTotal": 252.2,
-        "annualTotal": 5388.94,
-        "costPerUser": 0.5044,
-        "costPerConversation": 0.0034,
-        "nextMonthProjected": 277.42
-      }
+      "monthlyTotal": 607.05,
+      "annualTotal": 12981.33,
+      "costPerUser": 1.2141,
+      "costPerConversation": 0.0081,
+      "nextMonthProjected": 667.76
     },
-    {
-      "id": "compact",
-      "label": "Compact family member",
-      "relationship": "smaller-family-member",
-      "reason": "A lower-cost member of the selected model family.",
-      "model": {
-        "id": "gpt-4.1-mini",
-        "name": "GPT-4.1 mini",
-        "family": "gpt-4.1",
-        "tier": "compact"
+    "cheaper": {
+      "name": "GPT-4.1 mini + your content",
+      "breakdown": {
+        "openai": 90,
+        "rag": 102.2,
+        "storage": 0.1,
+        "compute": 54.75,
+        "apim": 0,
+        "monitoring": 0,
+        "identity": 0,
+        "finetuning": 0
       },
-      "configuration": {
-        "ragEnabled": true,
-        "computeEnabled": true
+      "monthlyTotal": 247.05,
+      "annualTotal": 5282.99,
+      "costPerUser": 0.4941,
+      "costPerConversation": 0.0033,
+      "nextMonthProjected": 271.76
+    },
+    "pricier": {
+      "name": "GPT-4o + your content",
+      "breakdown": {
+        "openai": 975,
+        "rag": 102.2,
+        "storage": 0.1,
+        "compute": 54.75,
+        "apim": 0,
+        "monitoring": 0,
+        "identity": 0,
+        "finetuning": 0
       },
-      "estimate": {
-        "name": "GPT-4.1 mini + your content",
-        "breakdown": {
-          "openai": 35.1,
-          "rag": 102.2,
-          "storage": 0.1,
-          "compute": 54.75
-        },
-        "monthlyTotal": 192.15,
-        "annualTotal": 4105.65,
-        "costPerUser": 0.3843,
-        "costPerConversation": 0.0026,
-        "nextMonthProjected": 211.37
-      }
+      "monthlyTotal": 1132.05,
+      "annualTotal": 24208.08,
+      "costPerUser": 2.2641,
+      "costPerConversation": 0.0151,
+      "nextMonthProjected": 1245.26
     }
-  ]
+  }
 }
 ```
 
 Response requirements:
 
-- `comparisons` contains one or more items in backend-controlled display order.
-- IDs are unique and opaque; the frontend does not assume `A`, `B`, or `C`.
-- `cheapestId` is `null` or references one returned comparison.
-- Each item supplies its own RAG and compute configuration.
-- Costs may be `null` when the response includes an explanatory warning.
-- The frontend renders the model, label, relationship, reason, and estimate exactly from
-  each returned item.
+- `scenarios` is keyed by the frontend-generated scenario IDs.
+- `cheapestId` is `null` or references one returned scenario.
+- Costs may be `null` when required pricing is unavailable. Any returned warnings are
+  displayed with the comparison results.
+- The frontend joins each returned scenario with its browser-only model metadata and
+  renders the comparisons in the original scenario order.
+- If the final backend totals differ from the catalog ranking, the frontend updates the
+  displayed lower-cost, higher-cost, or same-cost label to match the final totals.
 
 ### Error response
 
 ```json
 {
-  "code": "INVALID_COMPARISON_INPUT",
+  "code": "INVALID_ESTIMATE_INPUT",
   "message": "One or more assumptions are invalid.",
   "fieldErrors": {
-    "openai.users": "Input should be greater than or equal to 1."
+    "openai.users": "Input should be greater than or equal to 1"
   }
 }
 ```
+
+The frontend displays string `message`/`detail` errors and also supports the standard
+FastAPI validation `detail` array.
 
 ## Draft storage
 

@@ -91,6 +91,8 @@ test("preserves the user's disabled RAG and hosting choices on every scenario", 
   });
 
   assert.deepEqual(costEstimateRequest.resources, { compute: false });
+  assert.deepEqual(costEstimateRequest.rag, { avgDocTokens: 0 });
+  assert.deepEqual(costEstimateRequest.storage, { docStorageGB: 0 });
   for (const scenario of costEstimateRequest.scenarios) {
     assert.equal(scenario.forceRag, false);
   }

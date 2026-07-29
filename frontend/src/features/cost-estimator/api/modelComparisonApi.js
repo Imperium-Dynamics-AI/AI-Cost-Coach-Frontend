@@ -1,8 +1,6 @@
 const MODELS_PATH = "/api/v1/models";
-// The dedicated /api/v1/model-comparisons endpoint from docs/API_CONTRACT.md
-// was never implemented on the backend. Comparisons are built client-side
-// (see pickComparisonModels.js) and priced via the existing, working
-// /api/v1/cost-estimates endpoint instead.
+// Comparisons are built client-side (see pickComparisonModels.js) and priced
+// through the existing /api/v1/cost-estimates endpoint.
 const ESTIMATES_PATH = "/api/v1/cost-estimates";
 const API_BASE_URL = (import.meta.env?.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
 
@@ -59,18 +57,26 @@ async function requestPlaceholderComparisons({ meta, costEstimateRequest }) {
     cheapestId: null,
     warnings: [],
     placeholder: true,
-    comparisons: meta.map((item) => ({
-      id: item.id,
-      label: item.label,
-      relationship: item.relationship,
-      reason: "Preview mode — connect the pricing service for real numbers.",
-      model: { id: item.modelId, name: item.modelName },
-      configuration: {
-        ragEnabled: costEstimateRequest.scenarios.find((s) => s.id === item.id)?.forceRag ?? false,
-        computeEnabled: costEstimateRequest.resources.compute,
-      },
-      estimate: createPlaceholderEstimate(item.modelName),
-    })),
+    comparisons: meta.map((item) => {
+      const ragEnabled =
+        costEstimateRequest.scenarios.find((scenario) => scenario.id === item.id)
+          ?.forceRag ?? false;
+
+      return {
+        id: item.id,
+        label: item.label,
+        relationship: item.relationship,
+        reason: "Preview mode — connect the pricing service for real numbers.",
+        model: { id: item.modelId, name: item.modelName },
+        configuration: {
+          ragEnabled,
+          computeEnabled: costEstimateRequest.resources.compute,
+        },
+        estimate: createPlaceholderEstimate(
+          ragEnabled ? `${item.modelName} + your content` : item.modelName,
+        ),
+      };
+    }),
   };
 }
 
@@ -83,10 +89,56 @@ async function readErrorMessage(response) {
     if (typeof body.detail === "string" && body.detail) {
       return body.detail;
     }
-    return `The comparison service returned ${response.status}.`;
+    if (Array.isArray(body.detail)) {
+      const validationMessages = body.detail
+        .map((detail) => detail?.msg)
+        .filter((message) => typeof message === "string" && message);
+      if (validationMessages.length) {
+        return validationMessages.join(" ");
+      }
+    }
+    return `The pricing service returned ${response.status}.`;
   } catch {
-    return `The comparison service returned ${response.status}.`;
+    return `The pricing service returned ${response.status}.`;
   }
+}
+
+function alignMetadataWithBackendTotals(item, scenario, baselineScenario) {
+  if (item.relationship === "selected") {
+    return item;
+  }
+
+  const monthlyTotal = scenario?.monthlyTotal;
+  const baselineTotal = baselineScenario?.monthlyTotal;
+  if (!Number.isFinite(monthlyTotal) || !Number.isFinite(baselineTotal)) {
+    return item;
+  }
+
+  const difference = monthlyTotal - baselineTotal;
+  if (Math.abs(difference) < 0.005) {
+    return {
+      ...item,
+      label: "Same-cost option",
+      relationship: "same-cost",
+      reason: "The final estimate matches the selected model for the same usage.",
+    };
+  }
+
+  if (difference < 0) {
+    return {
+      ...item,
+      label: "Lower-cost option",
+      relationship: "cheaper",
+      reason: "A lower-cost model for the exact same usage.",
+    };
+  }
+
+  return {
+    ...item,
+    label: "Higher-cost option",
+    relationship: "more-expensive",
+    reason: "A higher-cost model for the exact same usage.",
+  };
 }
 
 function normalizePrice(value) {
@@ -207,17 +259,25 @@ export async function requestModelComparisons({ meta, costEstimateRequest }) {
   }
 
   const result = await response.json();
+  const baselineMeta =
+    meta.find((item) => item.relationship === "selected") ?? meta[0];
+  const baselineScenario = result.scenarios?.[baselineMeta?.id];
 
   const comparisons = meta.map((item) => {
     const scenario = result.scenarios?.[item.id];
     if (!scenario) {
       throw new Error(`The pricing service did not return scenario '${item.id}'.`);
     }
+    const displayMeta = alignMetadataWithBackendTotals(
+      item,
+      scenario,
+      baselineScenario,
+    );
     return {
       id: item.id,
-      label: item.label,
-      relationship: item.relationship,
-      reason: item.reason,
+      label: displayMeta.label,
+      relationship: displayMeta.relationship,
+      reason: displayMeta.reason,
       model: { id: item.modelId, name: item.modelName },
       configuration: {
         ragEnabled:

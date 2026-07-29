@@ -40,15 +40,16 @@ export function calculateLocalEstimate(values, catalog) {
   const docTokens = values.rag.avgDocTokens;
   const storageGB = values.storage.docStorageGB;
   const growthPct = values.global.growthPct;
+  const ragEnabled = values.rag.enabled === true;
+  const computeEnabled = values.compute.enabled === true;
 
   const numericInputs = [
     users,
     requestsPerDay,
     promptTokens,
     completionTokens,
-    docTokens,
-    storageGB,
     growthPct,
+    ...(ragEnabled ? [docTokens, storageGB] : []),
   ];
 
   if (
@@ -59,8 +60,6 @@ export function calculateLocalEstimate(values, catalog) {
     return null;
   }
 
-  const ragEnabled = values.rag.enabled === true;
-  const computeEnabled = values.compute.enabled === true;
   const totalMonthlyRequests = users * requestsPerDay * DAYS_PER_MONTH;
   const warnings = [];
 

@@ -20,7 +20,7 @@ export function CostEstimatorPage() {
     setCurrentStep,
     resetForm,
   } = useCalculatorForm();
-  const { status, result, error, compare, reset } = useModelComparisons();
+  const { status, result, error, compare, reportError, reset } = useModelComparisons();
   const {
     status: catalogStatus,
     catalog,
@@ -49,7 +49,11 @@ export function CostEstimatorPage() {
 
   const handleSubmit = () => {
     setActiveComparisonId(null);
-    compare(buildModelComparisonPayload(values, models, catalog));
+    try {
+      compare(buildModelComparisonPayload(values, models, catalog));
+    } catch (submissionError) {
+      reportError(submissionError);
+    }
   };
 
   const handleReset = () => {
@@ -84,7 +88,7 @@ export function CostEstimatorPage() {
             </svg>
             <p>
               <strong>Preview mode:</strong> you can review and submit every input now.
-              Live values use sample prices; authoritative comparisons require the real
+              Live values use sample prices; final comparison costs require the real
               pricing service.
             </p>
           </div>

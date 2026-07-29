@@ -5,12 +5,12 @@ import {
   requestModelComparisons,
 } from "./modelComparisonApi.js";
 
-function createScenarioResult(name) {
+function createScenarioResult(name, monthlyTotal = 10) {
   return {
     name,
     breakdown: {},
-    monthlyTotal: 10,
-    annualTotal: 120,
+    monthlyTotal,
+    annualTotal: monthlyTotal * 12,
     costPerUser: 0.1,
     costPerConversation: 0.001,
     nextMonthProjected: 11,
@@ -220,6 +220,60 @@ test("rejects a response with an unknown cheapestId", async () => {
       await assert.rejects(
         requestModelComparisons({ meta, costEstimateRequest }),
         /unknown cheapest comparison/,
+      );
+    },
+  );
+});
+
+test("aligns comparison labels with the backend's final totals", async () => {
+  const meta = [
+    createMetaItem("selected", "gpt-4.1", "GPT-4.1"),
+    createMetaItem("cheaper", "gpt-4.1-mini", "GPT-4.1 mini"),
+  ];
+  const costEstimateRequest = {
+    resources: { compute: false },
+    scenarios: [
+      { id: "selected", model: "GPT-4.1", forceRag: false },
+      { id: "cheaper", model: "GPT-4.1 mini", forceRag: false },
+    ],
+    openai: { users: 500, requestsPerDay: 5, avgPromptTokens: 800, avgCompletionTokens: 400 },
+    rag: { avgDocTokens: 0 },
+    storage: { docStorageGB: 0 },
+    global: { growthPct: 10 },
+  };
+
+  await withMockFetch(
+    async () => ({
+      ok: true,
+      json: async () => ({
+        cheapestId: "selected",
+        scenarios: {
+          selected: createScenarioResult("GPT-4.1", 10),
+          cheaper: createScenarioResult("GPT-4.1 mini", 20),
+        },
+      }),
+    }),
+    async () => {
+      const result = await requestModelComparisons({ meta, costEstimateRequest });
+      assert.equal(result.comparisons[1].label, "Higher-cost option");
+      assert.equal(result.comparisons[1].relationship, "more-expensive");
+    },
+  );
+});
+
+test("surfaces FastAPI validation messages", async () => {
+  await withMockFetch(
+    async () => ({
+      ok: false,
+      status: 422,
+      json: async () => ({
+        detail: [{ msg: "Input should be greater than or equal to 1" }],
+      }),
+    }),
+    async () => {
+      await assert.rejects(
+        requestModelComparisons({ meta: [], costEstimateRequest: {} }),
+        /greater than or equal to 1/,
       );
     },
   );

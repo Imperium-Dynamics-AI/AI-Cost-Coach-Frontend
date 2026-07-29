@@ -252,9 +252,9 @@ export function CalculatorForm({
             <legend className="visually-hidden">Choose an AI model</legend>
             <p className="question-help">
               Models and token rates come from the backend pricing catalog. Select a
-              primary model and we’ll calculate its cost as you update the remaining
-              assumptions. The comparison service will choose related models after your
-              final review.
+              primary model and we’ll update its cost as you change the remaining
+              assumptions. After review, we’ll compare it with the nearest lower- and
+              higher-cost catalog models using the same assumptions.
             </p>
             {catalogStatus === "loading" ? (
               <div className="catalog-state" role="status">
@@ -540,9 +540,9 @@ export function CalculatorForm({
         {step.id === "review" ? (
           <div className="review-panel">
             <p className="question-help">
-              Check your answers before sending them to the comparison service. The
-              frontend sends only your selected model and these assumptions; the backend
-              will choose the related comparison models.
+              Check your answers before requesting final prices. The browser selects
+              nearby lower- and higher-cost models from the catalog, and the backend
+              calculates every option using these same assumptions.
             </p>
             <dl className="review-list">
               <ReviewRow

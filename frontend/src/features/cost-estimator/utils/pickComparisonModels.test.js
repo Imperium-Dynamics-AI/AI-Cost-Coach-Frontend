@@ -64,3 +64,47 @@ test("returns null when the selected model isn't in the priced catalog", () => {
   const result = pickComparisonModels(valuesFor("not-a-real-model"), CATALOG);
   assert.equal(result, null);
 });
+
+test("ranks models when shared infrastructure prices are unavailable", () => {
+  const values = valuesFor("model-mid");
+  values.rag.enabled = true;
+  values.compute.enabled = true;
+
+  const result = pickComparisonModels(values, {
+    ...CATALOG,
+    infrastructure: {
+      aiSearchBasicPerHour: null,
+      blobStoragePerGB: null,
+      appServiceB1PerHour: null,
+    },
+  });
+
+  assert.deepEqual(
+    result.map((comparison) => comparison.id),
+    ["selected", "cheaper", "pricier"],
+  );
+});
+
+test("skips equal-cost models instead of mislabeling them", () => {
+  const tiedCatalog = {
+    ...CATALOG,
+    models: [
+      CATALOG.models[0],
+      CATALOG.models[1],
+      {
+        id: "model-mid-tie",
+        name: "Model Mid Tie",
+        inputPer1K: 0.005,
+        outputPer1K: 0.005,
+      },
+      CATALOG.models[2],
+    ],
+  };
+
+  const result = pickComparisonModels(valuesFor("model-mid"), tiedCatalog);
+
+  assert.deepEqual(
+    result.map((comparison) => comparison.model.id),
+    ["model-mid", "model-cheap", "model-expensive"],
+  );
+});

@@ -1,6 +1,6 @@
 # Azure AI Cost Coach
 
-Azure AI Cost Coach is a full-stack proof-of-concept that guides a business user through a short questionnaire, calculates the selected setup live, and displays model-family comparisons selected by a backend service.
+Azure AI Cost Coach is a full-stack proof-of-concept that guides a business user through a short questionnaire, calculates the selected setup live, and compares it with nearby lower- and higher-cost catalog models. The backend calculates authoritative costs for every frontend-supplied scenario.
 
 ```text
 AI-Cost-Coach/
@@ -63,7 +63,6 @@ The frontend environment must contain:
 ```env
 VITE_USE_MOCK_API=false
 VITE_API_BASE_URL=http://localhost:8000
-VITE_MODEL_COMPARISONS_PATH=/api/v1/model-comparisons
 ```
 
 If `frontend/.env` already exists, do not copy the example over it; confirm the two settings above and restart `npm run dev` after making changes.
@@ -103,15 +102,22 @@ SQLite price cache
 
 Browser recalculates the selected setup as answers change
         |
-        | POST /api/v1/model-comparisons after final review
+        | ranks priced catalog models after final review
         v
-Comparison API selects related models and returns ordered results
+Selected + nearest lower/higher-cost model scenarios
+        |
+        | POST /api/v1/cost-estimates
+        v
+FastAPI calculates every supplied scenario and identifies the cheapest
+        |
+        v
+Browser joins the results with its labels/reasons and renders comparisons
 ```
 
 The browser gets available models and rates from the backend, calculates the current
-selection locally, and sends only the selected model ID and raw inputs after the final
-review action. The current backend does not yet implement the model-comparison endpoint;
-real-mode final submission will fail until that endpoint is added. The exact planned
+selection locally, and ranks all fully priced catalog models for the same usage after the
+final review action. It submits the selected model plus the nearest lower- and
+higher-cost options as scenarios to the existing cost-estimate endpoint. The exact
 payload and response are documented in [docs/API_CONTRACT.md](docs/API_CONTRACT.md).
 
 ## Frontend commands
@@ -138,8 +144,7 @@ pdm run uvicorn src.main:app --reload
 |---|---|---|
 | `GET` | `/health` | Check API health and price-cache status |
 | `GET` | `/api/v1/models` | Return model and infrastructure rates for live frontend estimates |
-| `POST` | `/api/v1/model-comparisons` | Planned endpoint that selects related models and returns their comparisons |
-| `POST` | `/api/v1/cost-estimates` | Legacy endpoint retained by the backend; the frontend no longer calls it |
+| `POST` | `/api/v1/cost-estimates` | Calculate frontend-supplied comparison scenarios and identify the cheapest supplied scenario |
 | `GET` | `/prices` | Inspect all cached price records |
 | `GET` | `/prices/by-service/{service_name}` | Filter cached records by Azure service |
 | `GET` | `/prices/{sku_key}` | Inspect one cached SKU |
@@ -156,13 +161,13 @@ Install PDM, then open a new terminal so the command is available:
 python -m pip install --user pdm
 ```
 
-### The frontend says it cannot reach the comparison API
+### The frontend says it cannot calculate comparisons
 
 1. Confirm the backend terminal is still running.
 2. Open [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health).
 3. Confirm `VITE_USE_MOCK_API=false` in `frontend/.env`.
 4. Confirm `VITE_API_BASE_URL=http://localhost:8000`.
-5. Confirm the backend has implemented `POST /api/v1/model-comparisons`.
+5. Confirm the backend exposes `POST /api/v1/cost-estimates`.
 6. Restart the frontend after changing `.env`.
 
 ### The health endpoint reports `empty_cache`

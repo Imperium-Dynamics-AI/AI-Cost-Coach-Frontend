@@ -1,5 +1,11 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { requestModelComparisons } from "../api/modelComparisonApi";
+
+function comparisonErrorMessage(error) {
+  return error instanceof Error
+    ? error.message
+    : "Model comparisons could not be requested. Please try again.";
+}
 
 export function useModelComparisons() {
   const [status, setStatus] = useState("idle");
@@ -29,12 +35,17 @@ export function useModelComparisons() {
       }
 
       setError(
-        requestError instanceof Error
-          ? requestError.message
-          : "Model comparisons could not be requested. Please try again.",
+        comparisonErrorMessage(requestError),
       );
       setStatus("error");
     }
+  }, []);
+
+  const reportError = useCallback((requestError) => {
+    requestId.current += 1;
+    setResult(null);
+    setError(comparisonErrorMessage(requestError));
+    setStatus("error");
   }, []);
 
   const reset = useCallback(() => {
@@ -44,5 +55,12 @@ export function useModelComparisons() {
     setError("");
   }, []);
 
-  return { status, result, error, compare, reset };
+  useEffect(
+    () => () => {
+      requestId.current += 1;
+    },
+    [],
+  );
+
+  return { status, result, error, compare, reportError, reset };
 }

@@ -1,4 +1,5 @@
 import { COST_CATEGORIES } from "../config/calculatorConfig";
+import { classifyCostDifference } from "../utils/classifyCostDifference";
 
 function formatCurrency(value, currency = "USD", digits = 2) {
   if (value === null || value === undefined || !Number.isFinite(value)) {
@@ -15,7 +16,7 @@ function formatCurrency(value, currency = "USD", digits = 2) {
 
 function formatRelationship(value) {
   if (!value) {
-    return "Backend comparison";
+    return "Comparison option";
   }
 
   return value.replaceAll(/[-_]/g, " ");
@@ -24,32 +25,34 @@ function formatRelationship(value) {
 // Both differences are relative to the selected model, not the cheapest —
 // "Baseline" always means "what you picked," so a pricier alternative
 // still reads clearly as "+$X more" rather than implying it's the odd one out.
-function formatDollarDifference(monthlyTotal, baselineTotal, currency) {
-  if (!Number.isFinite(monthlyTotal) || !Number.isFinite(baselineTotal)) {
-    return "—";
-  }
+function formatDollarDifference(monthlyTotal, baselineTotal, currency, classification) {
+  if (classification === "unavailable") return "—";
+  if (classification === "baseline") return "Baseline";
+  if (classification === "same") return "Same cost";
 
   const diff = monthlyTotal - baselineTotal;
-  if (Math.abs(diff) < 0.005) {
-    return "Baseline";
-  }
-
   const amount = formatCurrency(Math.abs(diff), currency);
   return diff < 0 ? `Save ${amount}/mo` : `+${amount}/mo`;
 }
 
-function formatPercentDifference(monthlyTotal, baselineTotal) {
-  if (!Number.isFinite(monthlyTotal) || !Number.isFinite(baselineTotal) || baselineTotal === 0) {
-    return "—";
-  }
+function formatPercentDifference(monthlyTotal, baselineTotal, classification) {
+  if (classification === "unavailable") return "—";
+  if (classification === "baseline") return "Baseline";
+  if (classification === "same") return "Same cost";
+  if (baselineTotal === 0) return "—";
 
   const diff = monthlyTotal - baselineTotal;
-  if (Math.abs(diff) < 0.005) {
-    return "Baseline";
-  }
-
   const pct = Math.abs(diff / baselineTotal) * 100;
   return diff < 0 ? `${pct.toFixed(0)}% cheaper` : `${pct.toFixed(0)}% more`;
+}
+
+function differenceClassName(classification) {
+  if (classification === "cheaper") return "diff-cheaper";
+  if (classification === "pricier") return "diff-pricier";
+  if (classification === "baseline" || classification === "same") {
+    return "diff-baseline";
+  }
+  return undefined;
 }
 
 function ComparisonTabs({ comparisons, activeComparisonId, onComparisonChange }) {
@@ -90,8 +93,8 @@ function EmptyState() {
       </svg>
       <h2>Your estimate will appear here</h2>
       <p>
-        Select a model to see its live cost. Related model comparisons are requested only
-        after your final review.
+        Select a model to see its live cost. Nearby lower- and higher-cost models are
+        priced after your final review.
       </p>
     </div>
   );
@@ -101,10 +104,10 @@ function LoadingState() {
   return (
     <div className="result-state" role="status" aria-live="polite">
       <span className="spinner spinner--large" aria-hidden="true" />
-      <h2>Finding related models</h2>
+      <h2>Calculating comparison costs</h2>
       <p>
-        The comparison service is selecting the model family and calculating each
-        returned option.
+        The pricing service is calculating your selected model and its nearby
+        lower- and higher-cost alternatives.
       </p>
     </div>
   );
@@ -147,7 +150,7 @@ function ResultsTable({ result, comparisons }) {
       <div className="card-heading-row">
         <div>
           <span className="eyebrow">Nearest-priced alternatives</span>
-          <h2 id="comparison-heading">Compare returned models</h2>
+          <h2 id="comparison-heading">Compare model options</h2>
         </div>
         {Number.isFinite(result.totalMonthlyRequests) ? (
           <span className="request-summary">
@@ -174,6 +177,12 @@ function ResultsTable({ result, comparisons }) {
               const estimate = comparison.estimate;
               const isLowest = result.cheapestId === comparison.id;
               const isBaseline = comparison.id === baseline?.id;
+              const costDifference = classifyCostDifference(
+                estimate.monthlyTotal,
+                baselineTotal,
+                isBaseline,
+              );
+              const differenceClass = differenceClassName(costDifference);
 
               return (
                 <tr key={comparison.id} className={isLowest ? "comparison-row--best" : ""}>
@@ -185,11 +194,20 @@ function ResultsTable({ result, comparisons }) {
                     </small>
                   </th>
                   <td>{formatCurrency(estimate.monthlyTotal, result.currency)}</td>
-                  <td className={isBaseline ? "diff-baseline" : estimate.monthlyTotal < baselineTotal ? "diff-cheaper" : "diff-pricier"}>
-                    {formatDollarDifference(estimate.monthlyTotal, baselineTotal, result.currency)}
+                  <td className={differenceClass}>
+                    {formatDollarDifference(
+                      estimate.monthlyTotal,
+                      baselineTotal,
+                      result.currency,
+                      costDifference,
+                    )}
                   </td>
-                  <td className={isBaseline ? "diff-baseline" : estimate.monthlyTotal < baselineTotal ? "diff-cheaper" : "diff-pricier"}>
-                    {formatPercentDifference(estimate.monthlyTotal, baselineTotal)}
+                  <td className={differenceClass}>
+                    {formatPercentDifference(
+                      estimate.monthlyTotal,
+                      baselineTotal,
+                      costDifference,
+                    )}
                   </td>
                   <td>{formatCurrency(estimate.annualTotal, result.currency)}</td>
                   <td>{formatCurrency(estimate.costPerUser, result.currency, 3)}</td>
@@ -237,7 +255,10 @@ function EstimateReceipt({
       {result.placeholder ? (
         <div className="preview-callout" role="status">
           <strong>Preview comparison only.</strong>
-          <span>The backend will choose related models when its endpoint is connected.</span>
+          <span>
+            Models were selected from the sample catalog. Connect the backend pricing
+            service to calculate final totals.
+          </span>
         </div>
       ) : null}
 

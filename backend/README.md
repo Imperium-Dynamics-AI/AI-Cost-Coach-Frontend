@@ -12,7 +12,7 @@ This backend service powers the **Azure AI Cost Coach**. It fetches live retail 
 * **Model Catalog Endpoint (`GET /api/v1/models`)**: Returns input/output prices per 1K tokens + infrastructure rates in a single response, enabling dynamic client-side calculations in the React frontend.
 * **SQLite Cache Database (`src/core/database.py`)**: Stores pricing data locally with zero configuration to ensure fast response times and zero external API dependencies during cost estimations.
 * **Background Auto-Refresh**: Uses `AsyncIOScheduler` to refresh price caches every 24 hours.
-* **Cost Calculation Engine (`src/services/calculator.py`)**: Implements formula calculations for token costs (including RAG document prompt context injection), AI Search hosting, storage growth, and App Service compute toggles. Provides side-by-side comparisons of **Scenarios A, B, and C**.
+* **Cost Calculation Engine (`src/services/calculator.py`)**: Implements formula calculations for token costs (including RAG document prompt context injection), AI Search hosting, storage growth, and App Service compute toggles. Calculates one or more caller-supplied scenarios and returns their breakdowns plus the cheapest supplied scenario.
 * **Docker Containerization**: Includes production `Dockerfile` and `.dockerignore` configured with PDM.
 
 ---
@@ -72,7 +72,7 @@ Interactive Swagger API Documentation: [http://127.0.0.1:8000/docs](http://127.0
 | Method | Endpoint | Description |
 |---|---|---|
 | `GET` | `/api/v1/models` | **OpenAI Model Catalog & Prices** — Primary endpoint for frontend dynamic calculations |
-| `POST` | `/api/v1/cost-estimates` | **Cost Calculation Engine** — Computes monthly/annual costs & compares Scenarios A, B, C |
+| `POST` | `/api/v1/cost-estimates` | **Cost Calculation Engine** — Computes monthly/annual costs for caller-supplied scenarios and identifies the cheapest |
 | `GET` | `/health` | System health check, cached SKU counts, and cache age monitoring |
 | `GET` | `/prices` | Fetch all cached Azure price records |
 | `GET` | `/prices/by-service/{service_name}` | Filter cached prices by service (e.g. `/prices/by-service/openai`) |
@@ -90,7 +90,7 @@ backend/
 ├── .dockerignore               # Files excluded from container build
 ├── README.md                   # Documentation & setup guide
 └── src/
-    ├── main.py                 # Lean application entrypoint (< 30 lines)
+    ├── main.py                 # FastAPI application entrypoint and lifecycle
     ├── config/
     │   └── settings.py         # Application configuration & API settings
     ├── core/
@@ -103,7 +103,11 @@ backend/
     │   └── cost_estimate.py    # Pydantic request, response, and error schemas
     ├── services/
     │   ├── azure_sync.py       # Azure Retail Prices API sync & background scheduler
-    │   └── calculator.py       # Pure calculation engine logic
+    │   ├── constants.py        # Shared monthly time constants
+    │   ├── sku_manifest.py     # Model and infrastructure SKU definitions
+    │   ├── price_loader.py     # Isolated cached-price reads
+    │   ├── scenario_calculator.py # Per-scenario cost formulas
+    │   └── calculator.py       # Multi-scenario calculation orchestration
     └── api/
         ├── router.py           # Main APIRouter combining all domain routers
         └── v1/
