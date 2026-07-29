@@ -45,3 +45,9 @@ coverage/
 # Database files
 *.db
 
+# PDM
+.pdm-build/
+__pypackages__/
+.pdm-python
+
+*.tar

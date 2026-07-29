@@ -1,7 +1,6 @@
 import { useEffect, useRef } from "react";
 import { FormField } from "../../../shared/components/FormField";
 import { NumberInput } from "../../../shared/components/NumberInput";
-import { MODEL_OPTIONS } from "../config/calculatorConfig";
 import { HELP_TEXT } from "../config/helpText";
 
 const STEPS = [
@@ -47,21 +46,37 @@ const GROWTH_PRESETS = [
   { label: "10%", value: 10 },
 ];
 
-function ChoiceCard({ name, value, checked, onChange, title, description, required }) {
+function ChoiceCard({
+  name,
+  value,
+  checked,
+  onChange,
+  title,
+  description,
+  meta,
+  required,
+  disabled = false,
+}) {
   return (
-    <label className={`choice-card${checked ? " choice-card--selected" : ""}`}>
+    <label
+      className={`choice-card${checked ? " choice-card--selected" : ""}${
+        disabled ? " choice-card--disabled" : ""
+      }`}
+    >
       <input
         type="radio"
         name={name}
         value={value}
         checked={checked}
         required={required}
+        disabled={disabled}
         onChange={onChange}
       />
       <span className="choice-card__indicator" aria-hidden="true" />
       <span className="choice-card__copy">
         <strong>{title}</strong>
         <span>{description}</span>
+        {meta ? <small className="choice-card__meta">{meta}</small> : null}
       </span>
     </label>
   );
@@ -99,12 +114,50 @@ function ReviewRow({ label, value, step, onEdit }) {
   );
 }
 
-function findFirstIncompleteStep(values) {
-  if (!values.openai.model) return 0;
+function hasCompletePricing(model) {
+  return Number.isFinite(model?.inputPer1K) && Number.isFinite(model?.outputPer1K);
+}
+
+function formatModelRate(value, currency) {
+  if (!Number.isFinite(value)) {
+    return null;
+  }
+
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: currency || "USD",
+    minimumFractionDigits: 3,
+    maximumFractionDigits: 6,
+  }).format(value);
+}
+
+function modelPricingSummary(model, currency) {
+  const inputRate = formatModelRate(model.inputPer1K, currency);
+  const outputRate = formatModelRate(model.outputPer1K, currency);
+
+  if (!inputRate || !outputRate) {
+    return "Complete token pricing is currently unavailable";
+  }
+
+  return `${inputRate} input · ${outputRate} output per 1K tokens`;
+}
+
+function findFirstIncompleteStep(values, models) {
+  if (
+    !values.openai.modelId ||
+    !models.some(
+      (model) => model.id === values.openai.modelId && hasCompletePricing(model),
+    )
+  ) {
+    return 0;
+  }
   if (typeof values.rag.enabled !== "boolean") return 1;
   if (values.openai.users < 1 || values.openai.requestsPerDay < 1) return 2;
   if (values.openai.avgPromptTokens < 0 || values.openai.avgCompletionTokens < 0) return 3;
-  if (values.rag.avgDocTokens < 0 || values.storage.docStorageGB < 0) {
+  if (
+    values.rag.enabled &&
+    (values.rag.avgDocTokens < 0 || values.storage.docStorageGB < 0)
+  ) {
     return 3;
   }
   if (typeof values.compute.enabled !== "boolean" || values.global.growthPct < 0) return 4;
@@ -120,13 +173,24 @@ export function CalculatorForm({
   onSubmit,
   onReset,
   status,
+  models,
+  catalogStatus,
+  catalogError,
+  catalogCurrency,
+  catalogRegion,
+  onReloadCatalog,
 }) {
   const headingRef = useRef(null);
   const step = STEPS[currentStep];
   const isReviewStep = step.id === "review";
-  const comparisonModel = MODEL_OPTIONS.find(
-    (model) => model.value !== values.openai.model,
-  )?.label;
+  const selectedModel = models.find(
+    (model) => model.id === values.openai.modelId,
+  );
+  const pricedModels = models.filter(hasCompletePricing);
+  const modelStepBlocked =
+    step.id === "model" &&
+    (catalogStatus !== "success" || pricedModels.length === 0);
+  const reviewStepBlocked = isReviewStep && catalogStatus !== "success";
 
   useEffect(() => {
     headingRef.current?.focus();
@@ -140,7 +204,7 @@ export function CalculatorForm({
       return;
     }
 
-    const incompleteStep = findFirstIncompleteStep(values);
+    const incompleteStep = findFirstIncompleteStep(values, models);
     if (incompleteStep >= 0) {
       setCurrentStep(incompleteStep);
       return;
@@ -187,24 +251,59 @@ export function CalculatorForm({
           <fieldset className="question-fieldset">
             <legend className="visually-hidden">Choose an AI model</legend>
             <p className="question-help">
-              Select the model that best matches the work your solution will perform. This
-              will be your primary choice, and we’ll compare it with the other model using
-              the same assumptions.
+              Models and token rates come from the backend pricing catalog. Select a
+              primary model and we’ll update its cost as you change the remaining
+              assumptions. After review, we’ll compare it with the nearest lower- and
+              higher-cost catalog models using the same assumptions.
             </p>
-            <div className="choice-grid">
-              {MODEL_OPTIONS.map((model) => (
-                <ChoiceCard
-                  key={model.value}
-                  name="model"
-                  value={model.value}
-                  checked={values.openai.model === model.value}
-                  required
-                  title={model.label}
-                  description={model.description}
-                  onChange={() => setValue("openai.model", model.value)}
-                />
-              ))}
-            </div>
+            {catalogStatus === "loading" ? (
+              <div className="catalog-state" role="status">
+                <span className="spinner" aria-hidden="true" />
+                Loading available models and current prices…
+              </div>
+            ) : null}
+            {catalogStatus === "error" ? (
+              <div className="catalog-state catalog-state--error" role="alert">
+                <span>{catalogError}</span>
+                <button type="button" className="text-button" onClick={onReloadCatalog}>
+                  Try again
+                </button>
+              </div>
+            ) : null}
+            {catalogStatus === "success" && models.length === 0 ? (
+              <div className="catalog-state catalog-state--error" role="alert">
+                No models are available in the pricing cache. Refresh the backend pricing
+                data and try again.
+              </div>
+            ) : null}
+            {catalogStatus === "success" && models.length > 0 ? (
+              <>
+                <div className="catalog-summary">
+                  <span>Pricing region</span>
+                  <strong>{catalogRegion || "Azure default"}</strong>
+                  <span>
+                    {pricedModels.length} priced model
+                    {pricedModels.length === 1 ? "" : "s"}
+                  </span>
+                </div>
+                <div className="choice-grid choice-grid--models">
+                  {models.map((model) => (
+                    <ChoiceCard
+                      key={model.id || model.name}
+                      name="model"
+                      value={model.id}
+                      checked={values.openai.modelId === model.id}
+                      required
+                      disabled={!hasCompletePricing(model)}
+                      title={model.name}
+                      description="Azure OpenAI model available for this pricing region."
+                      meta={modelPricingSummary(model, catalogCurrency)}
+                      onChange={() => setValue("openai.modelId", model.id)}
+                    />
+                  ))}
+                </div>
+              </>
+            ) : null}
           </fieldset>
         ) : null}
 
@@ -339,57 +438,45 @@ export function CalculatorForm({
               />
             </FormField>
 
-            <div className="conditional-panel">
-              <div>
-                <span className="eyebrow">
-                  {values.rag.enabled
-                    ? "Because document search is enabled"
-                    : "For the option with document search"}
-                </span>
-                <h3>
-                  {values.rag.enabled
-                    ? "Tell us about your business content"
-                    : "Set the RAG comparison assumptions"}
-                </h3>
-                {!values.rag.enabled ? (
-                  <p className="question-help">
-                    These values are used only for Option C, which shows your selected
-                    model with RAG.
-                  </p>
-                ) : null}
-              </div>
-              <FormField
-                id="rag-context-tokens"
-                label="Document text added to each interaction"
-                help={HELP_TEXT.rag.avgDocTokens}
-              >
-                <NumberInput
+            {values.rag.enabled ? (
+              <div className="conditional-panel">
+                <div>
+                  <span className="eyebrow">Because document search is enabled</span>
+                  <h3>Tell us about your business content</h3>
+                </div>
+                <FormField
                   id="rag-context-tokens"
-                  name="avgDocTokens"
-                  value={values.rag.avgDocTokens}
-                  min={0}
-                  required
-                  unit="tokens"
-                  onChange={(value) => setValue("rag.avgDocTokens", value)}
-                />
-              </FormField>
-              <FormField
-                id="document-storage"
-                label="Total source documents stored"
-                help={HELP_TEXT.storage.docStorageGB}
-              >
-                <NumberInput
+                  label="Document text added to each interaction"
+                  help={HELP_TEXT.rag.avgDocTokens}
+                >
+                  <NumberInput
+                    id="rag-context-tokens"
+                    name="avgDocTokens"
+                    value={values.rag.avgDocTokens}
+                    min={0}
+                    required
+                    unit="tokens"
+                    onChange={(value) => setValue("rag.avgDocTokens", value)}
+                  />
+                </FormField>
+                <FormField
                   id="document-storage"
-                  name="docStorageGB"
-                  value={values.storage.docStorageGB}
-                  min={0}
-                  step={0.1}
-                  required
-                  unit="GB"
-                  onChange={(value) => setValue("storage.docStorageGB", value)}
-                />
-              </FormField>
-            </div>
+                  label="Total source documents stored"
+                  help={HELP_TEXT.storage.docStorageGB}
+                >
+                  <NumberInput
+                    id="document-storage"
+                    name="docStorageGB"
+                    value={values.storage.docStorageGB}
+                    min={0}
+                    step={0.1}
+                    required
+                    unit="GB"
+                    onChange={(value) => setValue("storage.docStorageGB", value)}
+                  />
+                </FormField>
+              </div>
+            ) : null}
           </div>
         ) : null}
 
@@ -453,27 +540,20 @@ export function CalculatorForm({
         {step.id === "review" ? (
           <div className="review-panel">
             <p className="question-help">
-              Check your answers before sending them to the pricing service. The options
-              share the same usage assumptions, and Option C shows your selected model
-              with the opposite RAG setting.
+              Check your answers before requesting final prices. The browser selects
+              nearby lower- and higher-cost models from the catalog, and the backend
+              calculates every option using these same assumptions.
             </p>
             <dl className="review-list">
-              <ReviewRow label="AI model" value={values.openai.model || "Not selected"} step={0} onEdit={setCurrentStep} />
               <ReviewRow
-                label="Compared with"
-                value={comparisonModel || "Not available"}
+                label="AI model"
+                value={selectedModel?.name || "Not selected"}
                 step={0}
                 onEdit={setCurrentStep}
               />
               <ReviewRow
                 label="Business document search"
                 value={values.rag.enabled ? "Included" : "Not included"}
-                step={1}
-                onEdit={setCurrentStep}
-              />
-              <ReviewRow
-                label="Option C RAG comparison"
-                value={values.rag.enabled ? "Without RAG" : "With RAG"}
                 step={1}
                 onEdit={setCurrentStep}
               />
@@ -503,13 +583,21 @@ export function CalculatorForm({
               />
               <ReviewRow
                 label="RAG document context"
-                value={`${values.rag.avgDocTokens.toLocaleString("en-US")} tokens per interaction`}
+                value={
+                  values.rag.enabled
+                    ? `${values.rag.avgDocTokens.toLocaleString("en-US")} tokens per interaction`
+                    : "Not used"
+                }
                 step={3}
                 onEdit={setCurrentStep}
               />
               <ReviewRow
                 label="RAG document storage"
-                value={`${values.storage.docStorageGB.toLocaleString("en-US")} GB`}
+                value={
+                  values.rag.enabled
+                    ? `${values.storage.docStorageGB.toLocaleString("en-US")} GB`
+                    : "Not used"
+                }
                 step={3}
                 onEdit={setCurrentStep}
               />
@@ -560,7 +648,7 @@ export function CalculatorForm({
         <button
           type="submit"
           className="primary-button primary-button--compact"
-          disabled={status === "loading"}
+          disabled={status === "loading" || modelStepBlocked || reviewStepBlocked}
         >
           {status === "loading"
             ? "Comparing…"

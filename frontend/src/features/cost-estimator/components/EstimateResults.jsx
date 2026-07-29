@@ -1,4 +1,5 @@
 import { COST_CATEGORIES } from "../config/calculatorConfig";
+import { classifyCostDifference } from "../utils/classifyCostDifference";
 
 function formatCurrency(value, currency = "USD", digits = 2) {
   if (value === null || value === undefined || !Number.isFinite(value)) {
@@ -13,29 +14,70 @@ function formatCurrency(value, currency = "USD", digits = 2) {
   }).format(value);
 }
 
-function ScenarioTabs({ scenarios, activeScenarioId, onScenarioChange }) {
+function formatRelationship(value) {
+  if (!value) {
+    return "Comparison option";
+  }
+
+  return value.replaceAll(/[-_]/g, " ");
+}
+
+// Both differences are relative to the selected model, not the cheapest —
+// "Baseline" always means "what you picked," so a pricier alternative
+// still reads clearly as "+$X more" rather than implying it's the odd one out.
+function formatDollarDifference(monthlyTotal, baselineTotal, currency, classification) {
+  if (classification === "unavailable") return "—";
+  if (classification === "baseline") return "Baseline";
+  if (classification === "same") return "Same cost";
+
+  const diff = monthlyTotal - baselineTotal;
+  const amount = formatCurrency(Math.abs(diff), currency);
+  return diff < 0 ? `Save ${amount}/mo` : `+${amount}/mo`;
+}
+
+function formatPercentDifference(monthlyTotal, baselineTotal, classification) {
+  if (classification === "unavailable") return "—";
+  if (classification === "baseline") return "Baseline";
+  if (classification === "same") return "Same cost";
+  if (baselineTotal === 0) return "—";
+
+  const diff = monthlyTotal - baselineTotal;
+  const pct = Math.abs(diff / baselineTotal) * 100;
+  return diff < 0 ? `${pct.toFixed(0)}% cheaper` : `${pct.toFixed(0)}% more`;
+}
+
+function differenceClassName(classification) {
+  if (classification === "cheaper") return "diff-cheaper";
+  if (classification === "pricier") return "diff-pricier";
+  if (classification === "baseline" || classification === "same") {
+    return "diff-baseline";
+  }
+  return undefined;
+}
+
+function ComparisonTabs({ comparisons, activeComparisonId, onComparisonChange }) {
   return (
     <div
-      className={`scenario-tabs scenario-tabs--${scenarios.length}`}
+      className={`scenario-tabs scenario-tabs--${comparisons.length}`}
       role="tablist"
-      aria-label="Configuration comparison options"
+      aria-label="Model comparison options"
     >
-      {scenarios.map((scenario) => (
+      {comparisons.map((comparison) => (
         <button
-          key={scenario.id}
-          id={`scenario-tab-${scenario.id}`}
+          key={comparison.id}
+          id={`comparison-tab-${comparison.id}`}
           type="button"
           role="tab"
-          aria-selected={activeScenarioId === scenario.id}
-          aria-controls={`scenario-panel-${scenario.id}`}
+          aria-selected={activeComparisonId === comparison.id}
+          aria-controls={`comparison-panel-${comparison.id}`}
           className={`scenario-tab${
-            activeScenarioId === scenario.id ? " scenario-tab--active" : ""
+            activeComparisonId === comparison.id ? " scenario-tab--active" : ""
           }`}
-          onClick={() => onScenarioChange(scenario.id)}
+          onClick={() => onComparisonChange(comparison.id)}
         >
-          <span className="scenario-tab__eyebrow">{scenario.label}</span>
-          <strong>{scenario.name}</strong>
-          <span className="scenario-tab__description">{scenario.role}</span>
+          <span className="scenario-tab__eyebrow">{comparison.label}</span>
+          <strong>{comparison.model.name}</strong>
+          <span className="scenario-tab__description">{comparison.reason}</span>
         </button>
       ))}
     </div>
@@ -49,8 +91,11 @@ function EmptyState() {
         <path d="M10 8h28v32H10z" />
         <path d="M16 16h16M16 23h16M16 30h7" />
       </svg>
-      <h2>Your options will appear here</h2>
-      <p>Complete the guided questions to compare the available configurations.</p>
+      <h2>Your estimate will appear here</h2>
+      <p>
+        Select a model to see its live cost. Nearby lower- and higher-cost models are
+        priced after your final review.
+      </p>
     </div>
   );
 }
@@ -59,16 +104,29 @@ function LoadingState() {
   return (
     <div className="result-state" role="status" aria-live="polite">
       <span className="spinner spinner--large" aria-hidden="true" />
-      <h2>Comparing your options</h2>
-      <p>The pricing service is calculating each available configuration.</p>
+      <h2>Calculating comparison costs</h2>
+      <p>
+        The pricing service is calculating your selected model and its nearby
+        lower- and higher-cost alternatives.
+      </p>
     </div>
   );
 }
 
-function ErrorState({ message }) {
+function CatalogLoadingState() {
+  return (
+    <div className="result-state" role="status" aria-live="polite">
+      <span className="spinner spinner--large" aria-hidden="true" />
+      <h2>Loading current prices</h2>
+      <p>The model catalog is being prepared for live browser-side estimates.</p>
+    </div>
+  );
+}
+
+function ErrorState({ message, title = "We couldn’t prepare the comparisons" }) {
   return (
     <div className="result-state result-state--error" role="alert">
-      <h2>We couldn’t prepare the estimate</h2>
+      <h2>{title}</h2>
       <p>{message}</p>
     </div>
   );
@@ -83,13 +141,16 @@ function ReceiptLine({ label, value, currency }) {
   );
 }
 
-function ResultsTable({ result, scenarios }) {
+function ResultsTable({ result, comparisons }) {
+  const baseline = comparisons.find((c) => c.relationship === "selected") ?? comparisons[0];
+  const baselineTotal = baseline?.estimate?.monthlyTotal;
+
   return (
     <section className="comparison-card" aria-labelledby="comparison-heading">
       <div className="card-heading-row">
         <div>
-          <span className="eyebrow">Same usage assumptions</span>
-          <h2 id="comparison-heading">Compare configuration options</h2>
+          <span className="eyebrow">Nearest-priced alternatives</span>
+          <h2 id="comparison-heading">Compare model options</h2>
         </div>
         {Number.isFinite(result.totalMonthlyRequests) ? (
           <span className="request-summary">
@@ -102,32 +163,56 @@ function ResultsTable({ result, scenarios }) {
         <table>
           <thead>
             <tr>
-              <th scope="col">Option</th>
+              <th scope="col">Model</th>
               <th scope="col">Monthly</th>
+              <th scope="col">Difference</th>
+              <th scope="col">vs. selected</th>
               <th scope="col">Annual</th>
               <th scope="col">Per person</th>
               <th scope="col">Per interaction</th>
             </tr>
           </thead>
           <tbody>
-            {scenarios.map((scenario) => {
-              const estimate = result.scenarios?.[scenario.id];
-              const isLowest = result.cheapestId === scenario.id;
+            {comparisons.map((comparison) => {
+              const estimate = comparison.estimate;
+              const isLowest = result.cheapestId === comparison.id;
+              const isBaseline = comparison.id === baseline?.id;
+              const costDifference = classifyCostDifference(
+                estimate.monthlyTotal,
+                baselineTotal,
+                isBaseline,
+              );
+              const differenceClass = differenceClassName(costDifference);
 
               return (
-                <tr key={scenario.id} className={isLowest ? "comparison-row--best" : ""}>
+                <tr key={comparison.id} className={isLowest ? "comparison-row--best" : ""}>
                   <th scope="row">
-                    <span>{scenario.name}</span>
+                    <span>{comparison.model.name}</span>
                     <small>
-                      {scenario.label} · {scenario.role}
+                      {comparison.label} · {formatRelationship(comparison.relationship)}
                       {isLowest ? " · Lowest estimate" : ""}
                     </small>
                   </th>
-                  <td>{formatCurrency(estimate?.monthlyTotal, result.currency)}</td>
-                  <td>{formatCurrency(estimate?.annualTotal, result.currency)}</td>
-                  <td>{formatCurrency(estimate?.costPerUser, result.currency, 3)}</td>
+                  <td>{formatCurrency(estimate.monthlyTotal, result.currency)}</td>
+                  <td className={differenceClass}>
+                    {formatDollarDifference(
+                      estimate.monthlyTotal,
+                      baselineTotal,
+                      result.currency,
+                      costDifference,
+                    )}
+                  </td>
+                  <td className={differenceClass}>
+                    {formatPercentDifference(
+                      estimate.monthlyTotal,
+                      baselineTotal,
+                      costDifference,
+                    )}
+                  </td>
+                  <td>{formatCurrency(estimate.annualTotal, result.currency)}</td>
+                  <td>{formatCurrency(estimate.costPerUser, result.currency, 3)}</td>
                   <td>
-                    {formatCurrency(estimate?.costPerConversation, result.currency, 4)}
+                    {formatCurrency(estimate.costPerConversation, result.currency, 4)}
                   </td>
                 </tr>
               );
@@ -141,33 +226,49 @@ function ResultsTable({ result, scenarios }) {
 
 function EstimateReceipt({
   result,
-  scenarios,
-  activeScenarioId,
-  computeEnabled,
+  comparisons,
+  activeComparisonId,
   growthPct,
+  isLive = false,
+  showComparison = true,
 }) {
-  const activeScenario = scenarios.find(
-    (scenario) => scenario.id === activeScenarioId,
-  );
-  const estimate = result.scenarios?.[activeScenario?.id];
+  const activeComparison =
+    comparisons.find((comparison) => comparison.id === activeComparisonId) ??
+    comparisons[0];
+  const estimate = activeComparison?.estimate;
 
-  if (!estimate) {
-    return <ErrorState message="The pricing service did not return this comparison option." />;
+  if (!activeComparison || !estimate) {
+    return <ErrorState message="The service did not return this comparison." />;
   }
 
   const includedCategories = COST_CATEGORIES.filter(
     (category) =>
       category.availability === "always" ||
-      (category.availability === "rag" && activeScenario.forceRag) ||
-      (category.availability === "compute" && computeEnabled),
+      (category.availability === "rag" &&
+        activeComparison.configuration.ragEnabled) ||
+      (category.availability === "compute" &&
+        activeComparison.configuration.computeEnabled),
   );
 
   return (
     <>
       {result.placeholder ? (
         <div className="preview-callout" role="status">
-          <strong>Your answers were recorded.</strong>
-          <span>All comparison options are ready for the backend pricing service.</span>
+          <strong>Preview comparison only.</strong>
+          <span>
+            Models were selected from the sample catalog. Connect the backend pricing
+            service to calculate final totals.
+          </span>
+        </div>
+      ) : null}
+
+      {isLive ? (
+        <div className="preview-callout" role="status">
+          <strong>Live browser estimate.</strong>
+          <span>
+            This updates from the cached {result.region || "Azure"} prices as you answer.
+            Unanswered service choices are not included yet.
+          </span>
         </div>
       ) : null}
 
@@ -183,20 +284,30 @@ function EstimateReceipt({
       ) : null}
 
       <section
-        id={`scenario-panel-${activeScenario.id}`}
+        id={isLive ? undefined : `comparison-panel-${activeComparison.id}`}
         className="estimate-card"
-        role="tabpanel"
-        aria-labelledby={`scenario-tab-${activeScenario.id}`}
+        role={isLive ? undefined : "tabpanel"}
+        aria-labelledby={
+          isLive ? undefined : `comparison-tab-${activeComparison.id}`
+        }
       >
         <div className="estimate-card__heading">
           <div>
-            <span className="eyebrow">{activeScenario.role}</span>
-            <h2>{estimate.name}</h2>
+            <span className="eyebrow">
+              {isLive
+                ? activeComparison.reason
+                : formatRelationship(activeComparison.relationship)}
+            </span>
+            <h2>{estimate.name || activeComparison.model.name}</h2>
           </div>
-          <span className="estimate-card__option">{activeScenario.label}</span>
+          <span className="estimate-card__option">{activeComparison.label}</span>
         </div>
 
-        {result.totalMonthlyRequests !== null ? (
+        {!isLive && activeComparison.reason ? (
+          <p className="comparison-reason">{activeComparison.reason}</p>
+        ) : null}
+
+        {Number.isFinite(result.totalMonthlyRequests) ? (
           <div className="request-volume">
             <span>Estimated usage</span>
             <strong>
@@ -242,8 +353,43 @@ function EstimateReceipt({
         </dl>
       </section>
 
-      <ResultsTable result={result} scenarios={scenarios} />
+      {showComparison ? (
+        <ResultsTable result={result} comparisons={comparisons} />
+      ) : null}
     </>
+  );
+}
+
+function LiveEstimate({ estimate, growthPct }) {
+  const comparison = {
+    id: "live",
+    label: "Live estimate",
+    relationship: "selected",
+    reason: "Your current selection",
+    model: {
+      id: "live",
+      name: estimate.scenario.name,
+    },
+    configuration: {
+      ragEnabled: estimate.assumptions.ragEnabled,
+      computeEnabled: estimate.assumptions.computeEnabled,
+    },
+    estimate: estimate.scenario,
+  };
+  const result = {
+    ...estimate,
+    comparisons: [comparison],
+  };
+
+  return (
+    <EstimateReceipt
+      result={result}
+      comparisons={result.comparisons}
+      activeComparisonId="live"
+      growthPct={growthPct}
+      isLive
+      showComparison={false}
+    />
   );
 }
 
@@ -251,29 +397,43 @@ export function EstimateResults({
   status,
   result,
   error,
-  scenarios,
-  activeScenarioId,
-  onScenarioChange,
-  computeEnabled,
+  activeComparisonId,
+  onComparisonChange,
   growthPct,
+  liveEstimate,
+  catalogStatus,
+  catalogError,
 }) {
+  const resolvedActiveId =
+    activeComparisonId ?? result?.comparisons?.[0]?.id ?? null;
+
   return (
     <div className="results-panel">
-      {status === "idle" ? <EmptyState /> : null}
+      {status === "idle" && catalogStatus === "loading" ? (
+        <CatalogLoadingState />
+      ) : null}
+      {status === "idle" && catalogStatus === "error" ? (
+        <ErrorState title="Current prices are unavailable" message={catalogError} />
+      ) : null}
+      {status === "idle" && catalogStatus === "success" && liveEstimate ? (
+        <LiveEstimate estimate={liveEstimate} growthPct={growthPct} />
+      ) : null}
+      {status === "idle" && catalogStatus === "success" && !liveEstimate ? (
+        <EmptyState />
+      ) : null}
       {status === "loading" ? <LoadingState /> : null}
       {status === "error" ? <ErrorState message={error} /> : null}
-      {status === "success" && result && scenarios.length >= 2 ? (
+      {status === "success" && result?.comparisons?.length ? (
         <>
-          <ScenarioTabs
-            scenarios={scenarios}
-            activeScenarioId={activeScenarioId}
-            onScenarioChange={onScenarioChange}
+          <ComparisonTabs
+            comparisons={result.comparisons}
+            activeComparisonId={resolvedActiveId}
+            onComparisonChange={onComparisonChange}
           />
           <EstimateReceipt
             result={result}
-            scenarios={scenarios}
-            activeScenarioId={activeScenarioId}
-            computeEnabled={computeEnabled}
+            comparisons={result.comparisons}
+            activeComparisonId={resolvedActiveId}
             growthPct={growthPct}
           />
         </>
