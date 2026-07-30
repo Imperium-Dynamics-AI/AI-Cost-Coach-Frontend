@@ -1,706 +1,662 @@
-import { useState } from "react";
-import { Accordion } from "../../../shared/components/Accordion";
-import { Checkbox } from "../../../shared/components/Checkbox";
+import { useEffect, useRef } from "react";
 import { FormField } from "../../../shared/components/FormField";
 import { NumberInput } from "../../../shared/components/NumberInput";
-import { SelectInput } from "../../../shared/components/SelectInput";
-import {
-  SECTION_COPY,
-  SELECT_OPTIONS,
-} from "../config/calculatorConfig";
 import { HELP_TEXT } from "../config/helpText";
-import { ResourceSelector } from "./ResourceSelector";
+
+const STEPS = [
+  {
+    id: "model",
+    label: "AI model",
+    title: "Which AI model would you like to start with?",
+  },
+  {
+    id: "rag",
+    label: "Business knowledge",
+    title: "Should the AI answer using your business documents?",
+  },
+  { id: "usage", label: "Expected usage", title: "How much will the solution be used?" },
+  {
+    id: "content",
+    label: "Content size",
+    title: "How much text will each AI interaction use?",
+  },
+  {
+    id: "planning",
+    label: "Hosting and growth",
+    title: "What supporting costs should the estimate include?",
+  },
+  { id: "review", label: "Review", title: "Review your assumptions" },
+];
+
+const PROMPT_PRESETS = [
+  { label: "Short", value: 400 },
+  { label: "Standard", value: 800 },
+  { label: "Long", value: 2000 },
+];
+
+const RESPONSE_PRESETS = [
+  { label: "Short", value: 150 },
+  { label: "Standard", value: 400 },
+  { label: "Long", value: 1000 },
+];
+
+const GROWTH_PRESETS = [
+  { label: "No growth", value: 0 },
+  { label: "5%", value: 5 },
+  { label: "10%", value: 10 },
+];
+
+function ChoiceCard({
+  name,
+  value,
+  checked,
+  onChange,
+  title,
+  description,
+  meta,
+  required,
+  disabled = false,
+}) {
+  return (
+    <label
+      className={`choice-card${checked ? " choice-card--selected" : ""}${
+        disabled ? " choice-card--disabled" : ""
+      }`}
+    >
+      <input
+        type="radio"
+        name={name}
+        value={value}
+        checked={checked}
+        required={required}
+        disabled={disabled}
+        onChange={onChange}
+      />
+      <span className="choice-card__indicator" aria-hidden="true" />
+      <span className="choice-card__copy">
+        <strong>{title}</strong>
+        <span>{description}</span>
+        {meta ? <small className="choice-card__meta">{meta}</small> : null}
+      </span>
+    </label>
+  );
+}
+
+function PresetButtons({ label, presets, value, onChange }) {
+  return (
+    <div className="preset-group" aria-label={label}>
+      {presets.map((preset) => (
+        <button
+          key={preset.value}
+          type="button"
+          className={`preset-button${value === preset.value ? " preset-button--active" : ""}`}
+          onClick={() => onChange(preset.value)}
+        >
+          {preset.label}
+          <small>{preset.value.toLocaleString("en-US")}</small>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ReviewRow({ label, value, step, onEdit }) {
+  return (
+    <div className="review-row">
+      <div>
+        <dt>{label}</dt>
+        <dd>{value}</dd>
+      </div>
+      <button type="button" onClick={() => onEdit(step)}>
+        Edit<span className="visually-hidden"> {label}</span>
+      </button>
+    </div>
+  );
+}
+
+function hasCompletePricing(model) {
+  return Number.isFinite(model?.inputPer1K) && Number.isFinite(model?.outputPer1K);
+}
+
+function formatModelRate(value, currency) {
+  if (!Number.isFinite(value)) {
+    return null;
+  }
+
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: currency || "USD",
+    minimumFractionDigits: 3,
+    maximumFractionDigits: 6,
+  }).format(value);
+}
+
+function modelPricingSummary(model, currency) {
+  const inputRate = formatModelRate(model.inputPer1K, currency);
+  const outputRate = formatModelRate(model.outputPer1K, currency);
+
+  if (!inputRate || !outputRate) {
+    return "Complete token pricing is currently unavailable";
+  }
+
+  return `${inputRate} input · ${outputRate} output per 1K tokens`;
+}
+
+function findFirstIncompleteStep(values, models) {
+  if (
+    !values.openai.modelId ||
+    !models.some(
+      (model) => model.id === values.openai.modelId && hasCompletePricing(model),
+    )
+  ) {
+    return 0;
+  }
+  if (typeof values.rag.enabled !== "boolean") return 1;
+  if (values.openai.users < 1 || values.openai.requestsPerDay < 1) return 2;
+  if (values.openai.avgPromptTokens < 0 || values.openai.avgCompletionTokens < 0) return 3;
+  if (
+    values.rag.enabled &&
+    (values.rag.avgDocTokens < 0 || values.storage.docStorageGB < 0)
+  ) {
+    return 3;
+  }
+  if (typeof values.compute.enabled !== "boolean" || values.global.growthPct < 0) return 4;
+  return -1;
+}
 
 export function CalculatorForm({
   values,
   setValue,
-  toggleResource,
-  hasSelectedResource,
+  currentStep,
+  setCurrentStep,
+  draftRestored,
   onSubmit,
+  onReset,
   status,
+  models,
+  catalogStatus,
+  catalogError,
+  catalogCurrency,
+  catalogRegion,
+  onReloadCatalog,
 }) {
-  const [openSection, setOpenSection] = useState("openai");
+  const headingRef = useRef(null);
+  const step = STEPS[currentStep];
+  const isReviewStep = step.id === "review";
+  const selectedModel = models.find(
+    (model) => model.id === values.openai.modelId,
+  );
+  const pricedModels = models.filter(hasCompletePricing);
+  const modelStepBlocked =
+    step.id === "model" &&
+    (catalogStatus !== "success" || pricedModels.length === 0);
+  const reviewStepBlocked = isReviewStep && catalogStatus !== "success";
 
-  const toggleSection = (section) => {
-    setOpenSection((current) => (current === section ? "" : section));
+  useEffect(() => {
+    headingRef.current?.focus();
+  }, [currentStep]);
+
+  const handleFormSubmit = (event) => {
+    event.preventDefault();
+
+    if (!isReviewStep) {
+      setCurrentStep(currentStep + 1);
+      return;
+    }
+
+    const incompleteStep = findFirstIncompleteStep(values, models);
+    if (incompleteStep >= 0) {
+      setCurrentStep(incompleteStep);
+      return;
+    }
+
+    onSubmit();
+  };
+
+  const handleStartOver = () => {
+    if (window.confirm("Clear all saved answers and start again?")) {
+      onReset();
+    }
   };
 
   return (
-    <form className="calculator-form" onSubmit={onSubmit}>
-      <ResourceSelector
-        selected={values.resources}
-        onToggle={toggleResource}
-        showError={!hasSelectedResource}
-      />
+    <form className="calculator-form wizard-card" onSubmit={handleFormSubmit}>
+      <div className="wizard-progress" aria-label={`Step ${currentStep + 1} of ${STEPS.length}`}>
+        <div className="wizard-progress__copy">
+          <span>
+            Step {currentStep + 1} of {STEPS.length}
+          </span>
+          <strong>{step.label}</strong>
+        </div>
+        <progress value={currentStep + 1} max={STEPS.length}>
+          {Math.round(((currentStep + 1) / STEPS.length) * 100)}%
+        </progress>
+      </div>
 
-      {values.resources.openai ? (
-        <Accordion
-          {...SECTION_COPY.openai}
-          open={openSection === "openai"}
-          onToggle={() => toggleSection("openai")}
-        >
-          <FormField
-            id="ai-model"
-            label="AI model"
-            help={HELP_TEXT.openai.model}
-          >
-            <SelectInput
-              id="ai-model"
-              name="model"
-              value={values.openai.model}
-              options={SELECT_OPTIONS.models}
-              onChange={(value) => setValue("openai.model", value)}
-            />
-          </FormField>
-          <FormField
-            id="billing-mode"
-            label="How should AI usage be billed?"
-            help={HELP_TEXT.openai.billingMode}
-          >
-            <SelectInput
-              id="billing-mode"
-              name="billingMode"
-              value={values.openai.billingMode}
-              options={SELECT_OPTIONS.billingModes}
-              onChange={(value) => setValue("openai.billingMode", value)}
-            />
-          </FormField>
-
-          {values.openai.billingMode === "ptu" ? (
-            <>
-              <FormField
-                id="ptu-count"
-                label="Reserved capacity units (PTUs)"
-                help={HELP_TEXT.openai.ptuCount}
-              >
-                <NumberInput
-                  id="ptu-count"
-                  name="ptuCount"
-                  value={values.openai.ptuCount}
-                  min={15}
-                  unit="PTUs"
-                  onChange={(value) => setValue("openai.ptuCount", value)}
-                />
-              </FormField>
-              <FormField
-                id="ptu-commitment"
-                label="Reservation period"
-                help={HELP_TEXT.openai.ptuCommitment}
-              >
-                <SelectInput
-                  id="ptu-commitment"
-                  name="ptuCommitment"
-                  value={values.openai.ptuCommitment}
-                  options={SELECT_OPTIONS.ptuCommitments}
-                  onChange={(value) => setValue("openai.ptuCommitment", value)}
-                />
-              </FormField>
-              <FormField
-                id="ptu-scope"
-                label="Where can reserved capacity run?"
-                help={HELP_TEXT.openai.ptuScope}
-              >
-                <SelectInput
-                  id="ptu-scope"
-                  name="ptuScope"
-                  value={values.openai.ptuScope}
-                  options={SELECT_OPTIONS.ptuScopes}
-                  onChange={(value) => setValue("openai.ptuScope", value)}
-                />
-              </FormField>
-            </>
-          ) : null}
-
-          {values.openai.billingMode === "batch" ? (
-            <FormField
-              id="batch-percent"
-              label="Work that can wait for a result"
-              help={HELP_TEXT.openai.batchPct}
-            >
-              <NumberInput
-                id="batch-percent"
-                name="batchPercent"
-                value={values.openai.batchPct}
-                min={0}
-                max={100}
-                unit="%"
-                onChange={(value) => setValue("openai.batchPct", value)}
-              />
-            </FormField>
-          ) : null}
-
-          <FormField
-            id="region-type"
-            label="Data hosting option"
-            help={HELP_TEXT.openai.regionType}
-          >
-            <SelectInput
-              id="region-type"
-              name="regionType"
-              value={values.openai.regionType}
-              options={SELECT_OPTIONS.regionTypes}
-              onChange={(value) => setValue("openai.regionType", value)}
-            />
-          </FormField>
-          <FormField
-            id="expected-users"
-            label="People using the solution"
-            help={HELP_TEXT.openai.users}
-          >
-            <NumberInput
-              id="expected-users"
-              name="users"
-              value={values.openai.users}
-              min={0}
-              unit="people"
-              onChange={(value) => setValue("openai.users", value)}
-            />
-          </FormField>
-          <FormField
-            id="requests-per-day"
-            label="AI interactions per person each day"
-            help={HELP_TEXT.openai.requestsPerDay}
-          >
-            <NumberInput
-              id="requests-per-day"
-              name="requestsPerDay"
-              value={values.openai.requestsPerDay}
-              min={0}
-              unit="requests"
-              onChange={(value) => setValue("openai.requestsPerDay", value)}
-            />
-          </FormField>
-          <FormField
-            id="prompt-tokens"
-            label="Typical user message size"
-            help={HELP_TEXT.openai.avgPromptTokens}
-          >
-            <NumberInput
-              id="prompt-tokens"
-              name="avgPromptTokens"
-              value={values.openai.avgPromptTokens}
-              min={0}
-              unit="tokens"
-              onChange={(value) => setValue("openai.avgPromptTokens", value)}
-            />
-          </FormField>
-          <FormField
-            id="completion-tokens"
-            label="Typical AI answer size"
-            help={HELP_TEXT.openai.avgCompletionTokens}
-          >
-            <NumberInput
-              id="completion-tokens"
-              name="avgCompletionTokens"
-              value={values.openai.avgCompletionTokens}
-              min={0}
-              unit="tokens"
-              onChange={(value) => setValue("openai.avgCompletionTokens", value)}
-            />
-          </FormField>
-          <FormField
-            id="history-turns"
-            label="Earlier conversation turns included"
-            help={HELP_TEXT.openai.historyTurns}
-          >
-            <NumberInput
-              id="history-turns"
-              name="historyTurns"
-              value={values.openai.historyTurns}
-              min={0}
-              unit="turns"
-              onChange={(value) => setValue("openai.historyTurns", value)}
-            />
-          </FormField>
-          <FormField
-            id="overhead-tokens"
-            label="Hidden instruction and tool text"
-            help={HELP_TEXT.openai.systemOverheadTokens}
-          >
-            <NumberInput
-              id="overhead-tokens"
-              name="systemOverheadTokens"
-              value={values.openai.systemOverheadTokens}
-              min={0}
-              unit="tokens"
-              onChange={(value) => setValue("openai.systemOverheadTokens", value)}
-            />
-          </FormField>
-          <FormField
-            id="max-token-cap"
-            label="Maximum AI answer length"
-            help={HELP_TEXT.openai.maxTokensCap}
-          >
-            <NumberInput
-              id="max-token-cap"
-              name="maxTokensCap"
-              value={values.openai.maxTokensCap}
-              min={0}
-              unit="tokens"
-              onChange={(value) => setValue("openai.maxTokensCap", value)}
-            />
-          </FormField>
-        </Accordion>
+      {draftRestored ? (
+        <div className="draft-notice" role="status">
+          Your saved answers were restored from this browser.
+        </div>
       ) : null}
 
-      {values.resources.rag ? (
-        <Accordion
-          {...SECTION_COPY.rag}
-          open={openSection === "rag"}
-          onToggle={() => toggleSection("rag")}
-        >
-          <FormField
-            id="embedding-model"
-            label="Search indexing quality"
-            help={HELP_TEXT.rag.embeddingModel}
-          >
-            <SelectInput
-              id="embedding-model"
-              name="embeddingModel"
-              value={values.rag.embeddingModel}
-              options={SELECT_OPTIONS.embeddingModels}
-              onChange={(value) => setValue("rag.embeddingModel", value)}
-            />
-          </FormField>
-          <FormField
-            id="document-count"
-            label="Documents to make searchable"
-            help={HELP_TEXT.rag.numDocuments}
-          >
-            <NumberInput
-              id="document-count"
-              name="numDocuments"
-              value={values.rag.numDocuments}
-              min={0}
-              unit="documents"
-              onChange={(value) => setValue("rag.numDocuments", value)}
-            />
-          </FormField>
-          <FormField
-            id="document-size"
-            label="Typical document size"
-            help={HELP_TEXT.rag.avgDocTokens}
-          >
-            <NumberInput
-              id="document-size"
-              name="avgDocTokens"
-              value={values.rag.avgDocTokens}
-              min={0}
-              unit="tokens"
-              onChange={(value) => setValue("rag.avgDocTokens", value)}
-            />
-          </FormField>
-          <FormField
-            id="chunk-size"
-            label="Search passage size"
-            help={HELP_TEXT.rag.chunkSize}
-          >
-            <NumberInput
-              id="chunk-size"
-              name="chunkSize"
-              value={values.rag.chunkSize}
-              min={50}
-              unit="tokens"
-              onChange={(value) => setValue("rag.chunkSize", value)}
-            />
-          </FormField>
-          <FormField
-            id="reindex-frequency"
-            label="How often content is refreshed"
-            help={HELP_TEXT.rag.reindexFreq}
-          >
-            <SelectInput
-              id="reindex-frequency"
-              name="reindexFreq"
-              value={values.rag.reindexFreq}
-              options={SELECT_OPTIONS.reindexFrequencies}
-              onChange={(value) => setValue("rag.reindexFreq", value)}
-            />
-          </FormField>
-          <FormField
-            id="searches-per-day"
-            label="Knowledge-base searches each day"
-            help={HELP_TEXT.rag.vectorQueriesPerDay}
-          >
-            <NumberInput
-              id="searches-per-day"
-              name="vectorQueriesPerDay"
-              value={values.rag.vectorQueriesPerDay}
-              min={0}
-              unit="searches"
-              onChange={(value) => setValue("rag.vectorQueriesPerDay", value)}
-            />
-          </FormField>
-          <FormField
-            id="search-tier"
-            label="Search service size"
-            help={HELP_TEXT.rag.searchTier}
-          >
-            <SelectInput
-              id="search-tier"
-              name="searchTier"
-              value={values.rag.searchTier}
-              options={SELECT_OPTIONS.searchTiers}
-              onChange={(value) => setValue("rag.searchTier", value)}
-            />
-          </FormField>
-          <FormField
-            id="search-capacity"
-            label="Additional search capacity units"
-            help={HELP_TEXT.rag.replicaCount}
-          >
-            <NumberInput
-              id="search-capacity"
-              name="replicaCount"
-              value={values.rag.replicaCount}
-              min={1}
-              unit="units"
-              onChange={(value) => setValue("rag.replicaCount", value)}
-            />
-          </FormField>
-        </Accordion>
-      ) : null}
+      <section className="wizard-step" aria-labelledby={`step-heading-${step.id}`}>
+        <div className="wizard-step__heading">
+          <span className="eyebrow">{step.label}</span>
+          <h2 id={`step-heading-${step.id}`} ref={headingRef} tabIndex="-1">
+            {step.title}
+          </h2>
+        </div>
 
-      {values.resources.storage ? (
-        <Accordion
-          {...SECTION_COPY.storage}
-          open={openSection === "storage"}
-          onToggle={() => toggleSection("storage")}
-        >
-          <FormField
-            id="document-storage"
-            label="Source files stored"
-            help={HELP_TEXT.storage.docStorageGB}
-          >
-            <NumberInput
-              id="document-storage"
-              name="docStorageGB"
-              value={values.storage.docStorageGB}
-              min={0}
-              unit="GB"
-              onChange={(value) => setValue("storage.docStorageGB", value)}
-            />
-          </FormField>
-          <FormField
-            id="storage-growth"
-            label="Expected file growth each month"
-            help={HELP_TEXT.storage.storageGrowthPct}
-          >
-            <NumberInput
-              id="storage-growth"
-              name="storageGrowthPct"
-              value={values.storage.storageGrowthPct}
-              min={0}
-              unit="%"
-              onChange={(value) => setValue("storage.storageGrowthPct", value)}
-            />
-          </FormField>
-          <FormField
-            id="vector-storage"
-            label="Searchable knowledge-base size"
-            help={HELP_TEXT.storage.vectorStorageGB}
-          >
-            <NumberInput
-              id="vector-storage"
-              name="vectorStorageGB"
-              value={values.storage.vectorStorageGB}
-              min={0}
-              unit="GB"
-              onChange={(value) => setValue("storage.vectorStorageGB", value)}
-            />
-          </FormField>
-          <FormField
-            id="sql-tier"
-            label="Application database size"
-            help={HELP_TEXT.storage.sqlTier}
-          >
-            <SelectInput
-              id="sql-tier"
-              name="sqlTier"
-              value={values.storage.sqlTier}
-              options={SELECT_OPTIONS.sqlTiers}
-              onChange={(value) => setValue("storage.sqlTier", value)}
-            />
-          </FormField>
-        </Accordion>
-      ) : null}
+        {step.id === "model" ? (
+          <fieldset className="question-fieldset">
+            <legend className="visually-hidden">Choose an AI model</legend>
+            <p className="question-help">
+              Models and token rates come from the backend pricing catalog. Select a
+              primary model and we’ll update its cost as you change the remaining
+              assumptions. After review, we’ll compare it with the nearest lower- and
+              higher-cost catalog models using the same assumptions.
+            </p>
+            {catalogStatus === "loading" ? (
+              <div className="catalog-state" role="status">
+                <span className="spinner" aria-hidden="true" />
+                Loading available models and current prices…
+              </div>
+            ) : null}
+            {catalogStatus === "error" ? (
+              <div className="catalog-state catalog-state--error" role="alert">
+                <span>{catalogError}</span>
+                <button type="button" className="text-button" onClick={onReloadCatalog}>
+                  Try again
+                </button>
+              </div>
+            ) : null}
+            {catalogStatus === "success" && models.length === 0 ? (
+              <div className="catalog-state catalog-state--error" role="alert">
+                No models are available in the pricing cache. Refresh the backend pricing
+                data and try again.
+              </div>
+            ) : null}
+            {catalogStatus === "success" && models.length > 0 ? (
+              <>
+                <div className="catalog-summary">
+                  <span>Pricing region</span>
+                  <strong>{catalogRegion || "Azure default"}</strong>
+                  <span>
+                    {pricedModels.length} priced model
+                    {pricedModels.length === 1 ? "" : "s"}
+                  </span>
+                </div>
+                <div className="choice-grid choice-grid--models">
+                  {models.map((model) => (
+                    <ChoiceCard
+                      key={model.id || model.name}
+                      name="model"
+                      value={model.id}
+                      checked={values.openai.modelId === model.id}
+                      required
+                      disabled={!hasCompletePricing(model)}
+                      title={model.name}
+                      description="Azure OpenAI model available for this pricing region."
+                      meta={modelPricingSummary(model, catalogCurrency)}
+                      onChange={() => setValue("openai.modelId", model.id)}
+                    />
+                  ))}
+                </div>
+              </>
+            ) : null}
+          </fieldset>
+        ) : null}
 
-      {values.resources.compute ? (
-        <Accordion
-          {...SECTION_COPY.compute}
-          open={openSection === "compute"}
-          onToggle={() => toggleSection("compute")}
-        >
-          <FormField
-            id="app-service-tier"
-            label="Web app and API hosting"
-            help={HELP_TEXT.compute.appServiceTier}
-          >
-            <SelectInput
-              id="app-service-tier"
-              name="appServiceTier"
-              value={values.compute.appServiceTier}
-              options={SELECT_OPTIONS.appServiceTiers}
-              onChange={(value) => setValue("compute.appServiceTier", value)}
-            />
-          </FormField>
-          <FormField
-            id="functions-plan"
-            label="Background task hosting"
-            help={HELP_TEXT.compute.functionsPlan}
-          >
-            <SelectInput
-              id="functions-plan"
-              name="functionsPlan"
-              value={values.compute.functionsPlan}
-              options={SELECT_OPTIONS.functionsPlans}
-              onChange={(value) => setValue("compute.functionsPlan", value)}
-            />
-          </FormField>
-          <FormField
-            id="environment-dev"
-            label="Separate environments to include"
-            help={HELP_TEXT.compute.environments}
-            stacked
-          >
-            <div className="checkbox-group">
-              <Checkbox
-                id="environment-dev"
-                name="environmentDev"
-                label="Development"
-                checked={values.compute.environments.dev}
-                onChange={(value) => setValue("compute.environments.dev", value)}
+        {step.id === "rag" ? (
+          <fieldset className="question-fieldset">
+            <legend className="visually-hidden">Choose whether to use document search</legend>
+            <p className="question-help">{HELP_TEXT.rag.enabled}</p>
+            <div className="choice-grid">
+              <ChoiceCard
+                name="ragEnabled"
+                value="yes"
+                checked={values.rag.enabled === true}
+                required
+                title="Yes — search my documents"
+                description="Include Azure AI Search, document storage, and retrieved context."
+                onChange={() => setValue("rag.enabled", true)}
               />
-              <Checkbox
-                id="environment-test"
-                name="environmentTest"
-                label="Testing"
-                checked={values.compute.environments.test}
-                onChange={(value) => setValue("compute.environments.test", value)}
-              />
-              <Checkbox
-                id="environment-prod"
-                name="environmentProd"
-                label="Production"
-                checked={values.compute.environments.prod}
-                onChange={(value) => setValue("compute.environments.prod", value)}
+              <ChoiceCard
+                name="ragEnabled"
+                value="no"
+                checked={values.rag.enabled === false}
+                required
+                title="No — use the AI model only"
+                description="Estimate model usage without a business knowledge base."
+                onChange={() => setValue("rag.enabled", false)}
               />
             </div>
-          </FormField>
-        </Accordion>
-      ) : null}
+          </fieldset>
+        ) : null}
 
-      {values.resources.apim ? (
-        <Accordion
-          {...SECTION_COPY.apim}
-          open={openSection === "apim"}
-          onToggle={() => toggleSection("apim")}
-        >
-          <FormField
-            id="apim-tier"
-            label="API protection plan"
-            help={HELP_TEXT.apim.apimTier}
-          >
-            <SelectInput
-              id="apim-tier"
-              name="apimTier"
-              value={values.apim.apimTier}
-              options={SELECT_OPTIONS.apimTiers}
-              onChange={(value) => setValue("apim.apimTier", value)}
-            />
-          </FormField>
-        </Accordion>
-      ) : null}
+        {step.id === "usage" ? (
+          <div className="question-panel">
+            <p className="question-help">
+              We use these answers to calculate the total number of AI interactions in a
+              30-day month.
+            </p>
+            <FormField
+              id="expected-users"
+              label="How many active people should the estimate include?"
+              help={HELP_TEXT.openai.users}
+            >
+              <NumberInput
+                id="expected-users"
+                name="users"
+                value={values.openai.users}
+                min={1}
+                required
+                unit="people"
+                onChange={(value) => setValue("openai.users", value)}
+              />
+            </FormField>
+            <FormField
+              id="requests-per-day"
+              label="How many AI interactions will each person have per day?"
+              help={HELP_TEXT.openai.requestsPerDay}
+            >
+              <NumberInput
+                id="requests-per-day"
+                name="requestsPerDay"
+                value={values.openai.requestsPerDay}
+                min={1}
+                required
+                unit="interactions"
+                onChange={(value) => setValue("openai.requestsPerDay", value)}
+              />
+            </FormField>
+            <div className="calculated-hint">
+              About{" "}
+              <strong>
+                {(values.openai.users * values.openai.requestsPerDay * 30).toLocaleString(
+                  "en-US",
+                )}
+              </strong>{" "}
+              AI interactions per month
+            </div>
+          </div>
+        ) : null}
 
-      {values.resources.monitoring ? (
-        <Accordion
-          {...SECTION_COPY.monitoring}
-          open={openSection === "monitoring"}
-          onToggle={() => toggleSection("monitoring")}
-        >
-          <FormField
-            id="log-volume"
-            label="Monitoring data collected each month"
-            help={HELP_TEXT.monitoring.logGB}
-          >
-            <NumberInput
-              id="log-volume"
-              name="logGB"
-              value={values.monitoring.logGB}
-              min={0}
-              unit="GB"
-              onChange={(value) => setValue("monitoring.logGB", value)}
-            />
-          </FormField>
-          <FormField
-            id="retention-days"
-            label="How long logs are kept"
-            help={HELP_TEXT.monitoring.retentionDays}
-          >
-            <NumberInput
-              id="retention-days"
-              name="retentionDays"
-              value={values.monitoring.retentionDays}
-              min={0}
-              unit="days"
-              onChange={(value) => setValue("monitoring.retentionDays", value)}
-            />
-          </FormField>
-        </Accordion>
-      ) : null}
+        {step.id === "content" ? (
+          <div className="question-panel">
+            <p className="question-help">
+              Choose a quick preset or enter your own estimate. Tokens are small pieces of
+              text used for AI billing.
+            </p>
+            <div className="preset-section">
+              <span>Typical text sent to the AI</span>
+              <PresetButtons
+                label="Input-size presets"
+                presets={PROMPT_PRESETS}
+                value={values.openai.avgPromptTokens}
+                onChange={(value) => setValue("openai.avgPromptTokens", value)}
+              />
+            </div>
+            <FormField
+              id="prompt-tokens"
+              label="Average input size"
+              help={HELP_TEXT.openai.avgPromptTokens}
+            >
+              <NumberInput
+                id="prompt-tokens"
+                name="avgPromptTokens"
+                value={values.openai.avgPromptTokens}
+                min={0}
+                required
+                unit="tokens"
+                onChange={(value) => setValue("openai.avgPromptTokens", value)}
+              />
+            </FormField>
 
-      {values.resources.identity ? (
-        <Accordion
-          {...SECTION_COPY.identity}
-          open={openSection === "identity"}
-          onToggle={() => toggleSection("identity")}
-        >
-          <FormField
-            id="identity-tier"
-            label="Sign-in and access plan"
-            help={HELP_TEXT.identity.entraTier}
-          >
-            <SelectInput
-              id="identity-tier"
-              name="entraTier"
-              value={values.identity.entraTier}
-              options={SELECT_OPTIONS.entraTiers}
-              onChange={(value) => setValue("identity.entraTier", value)}
-            />
-          </FormField>
-          <FormField
-            id="licensed-users"
-            label="People needing paid sign-in features"
-            help={HELP_TEXT.identity.licensedUsers}
-          >
-            <NumberInput
-              id="licensed-users"
-              name="licensedUsers"
-              value={values.identity.licensedUsers}
-              min={0}
-              unit="people"
-              onChange={(value) => setValue("identity.licensedUsers", value)}
-            />
-          </FormField>
-          <FormField
-            id="key-vault"
-            label="Secure storage for keys and passwords"
-            help={HELP_TEXT.identity.keyVaultIncluded}
-          >
-            <SelectInput
-              id="key-vault"
-              name="keyVaultIncluded"
-              value={values.identity.keyVaultIncluded ? "included" : "excluded"}
-              options={SELECT_OPTIONS.keyVaultOptions}
-              onChange={(value) =>
-                setValue("identity.keyVaultIncluded", value === "included")
-              }
-            />
-          </FormField>
-        </Accordion>
-      ) : null}
+            <div className="preset-section">
+              <span>Typical AI response length</span>
+              <PresetButtons
+                label="Response-size presets"
+                presets={RESPONSE_PRESETS}
+                value={values.openai.avgCompletionTokens}
+                onChange={(value) => setValue("openai.avgCompletionTokens", value)}
+              />
+            </div>
+            <FormField
+              id="completion-tokens"
+              label="Average response size"
+              help={HELP_TEXT.openai.avgCompletionTokens}
+            >
+              <NumberInput
+                id="completion-tokens"
+                name="avgCompletionTokens"
+                value={values.openai.avgCompletionTokens}
+                min={0}
+                required
+                unit="tokens"
+                onChange={(value) => setValue("openai.avgCompletionTokens", value)}
+              />
+            </FormField>
 
-      {values.resources.finetuning ? (
-        <Accordion
-          {...SECTION_COPY.finetuning}
-          open={openSection === "finetuning"}
-          onToggle={() => toggleSection("finetuning")}
-        >
-          <FormField
-            id="custom-model-hosting"
-            label="Custom model availability"
-            help={HELP_TEXT.finetuning.hostingOn}
-          >
-            <SelectInput
-              id="custom-model-hosting"
-              name="hostingOn"
-              value={values.finetuning.hostingOn ? "on" : "off"}
-              options={SELECT_OPTIONS.hostingOptions}
-              onChange={(value) => setValue("finetuning.hostingOn", value === "on")}
-            />
-          </FormField>
-          <FormField
-            id="training-cost"
-            label="One-time training budget"
-            help={HELP_TEXT.finetuning.trainingCost}
-          >
-            <NumberInput
-              id="training-cost"
-              name="trainingCost"
-              value={values.finetuning.trainingCost}
-              min={0}
-              prefix="$"
-              unit="USD"
-              onChange={(value) => setValue("finetuning.trainingCost", value)}
-            />
-          </FormField>
-        </Accordion>
-      ) : null}
+            {values.rag.enabled ? (
+              <div className="conditional-panel">
+                <div>
+                  <span className="eyebrow">Because document search is enabled</span>
+                  <h3>Tell us about your business content</h3>
+                </div>
+                <FormField
+                  id="rag-context-tokens"
+                  label="Document text added to each interaction"
+                  help={HELP_TEXT.rag.avgDocTokens}
+                >
+                  <NumberInput
+                    id="rag-context-tokens"
+                    name="avgDocTokens"
+                    value={values.rag.avgDocTokens}
+                    min={0}
+                    required
+                    unit="tokens"
+                    onChange={(value) => setValue("rag.avgDocTokens", value)}
+                  />
+                </FormField>
+                <FormField
+                  id="document-storage"
+                  label="Total source documents stored"
+                  help={HELP_TEXT.storage.docStorageGB}
+                >
+                  <NumberInput
+                    id="document-storage"
+                    name="docStorageGB"
+                    value={values.storage.docStorageGB}
+                    min={0}
+                    step={0.1}
+                    required
+                    unit="GB"
+                    onChange={(value) => setValue("storage.docStorageGB", value)}
+                  />
+                </FormField>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
 
-      <Accordion
-        {...SECTION_COPY.global}
-        open={openSection === "global"}
-        onToggle={() => toggleSection("global")}
-      >
-        <FormField
-          id="retry-overhead"
-          label="Extra usage for retries and busy periods"
-          help={HELP_TEXT.global.retryOverheadPct}
-        >
-          <NumberInput
-            id="retry-overhead"
-            name="retryOverheadPct"
-            value={values.global.retryOverheadPct}
-            min={0}
-            unit="%"
-            onChange={(value) => setValue("global.retryOverheadPct", value)}
-          />
-        </FormField>
-        <FormField
-          id="next-month-growth"
-          label="Expected usage growth next month"
-          help={HELP_TEXT.global.growthPct}
-        >
-          <NumberInput
-            id="next-month-growth"
-            name="growthPct"
-            value={values.global.growthPct}
-            min={0}
-            unit="%"
-            onChange={(value) => setValue("global.growthPct", value)}
-          />
-        </FormField>
-        <FormField
-          id="infrastructure-overhead"
-          label="Other fixed Azure costs each month"
-          help={HELP_TEXT.global.infraOverheadUsd}
-        >
-          <NumberInput
-            id="infrastructure-overhead"
-            name="infraOverheadUsd"
-            value={values.global.infraOverheadUsd}
-            min={0}
-            prefix="$"
-            unit="USD"
-            onChange={(value) => setValue("global.infraOverheadUsd", value)}
-          />
-        </FormField>
-      </Accordion>
+        {step.id === "planning" ? (
+          <div className="question-panel">
+            <fieldset className="question-fieldset question-fieldset--nested">
+              <legend>Should we include a small web app to host the solution?</legend>
+              <p className="question-help">{HELP_TEXT.compute.enabled}</p>
+              <div className="choice-grid">
+                <ChoiceCard
+                  name="computeEnabled"
+                  value="yes"
+                  checked={values.compute.enabled === true}
+                  required
+                  title="Yes — include app hosting"
+                  description="Add one Azure App Service Basic B1 instance."
+                  onChange={() => setValue("compute.enabled", true)}
+                />
+                <ChoiceCard
+                  name="computeEnabled"
+                  value="no"
+                  checked={values.compute.enabled === false}
+                  required
+                  title="No — exclude app hosting"
+                  description="Estimate only the selected AI and document services."
+                  onChange={() => setValue("compute.enabled", false)}
+                />
+              </div>
+            </fieldset>
 
-      <button
-        type="submit"
-        className="primary-button"
-        disabled={!hasSelectedResource || status === "loading"}
-      >
-        {status === "loading" ? (
-          <>
-            <span className="spinner" aria-hidden="true" />
-            Preparing estimate…
-          </>
-        ) : (
-          "Estimate and compare monthly cost"
-        )}
-      </button>
+            <div className="planning-divider" />
+
+            <div className="preset-section">
+              <span>How much do you expect usage to grow each month?</span>
+              <PresetButtons
+                label="Monthly-growth presets"
+                presets={GROWTH_PRESETS}
+                value={values.global.growthPct}
+                onChange={(value) => setValue("global.growthPct", value)}
+              />
+            </div>
+            <FormField
+              id="monthly-growth"
+              label="Expected monthly growth"
+              help={HELP_TEXT.global.growthPct}
+            >
+              <NumberInput
+                id="monthly-growth"
+                name="growthPct"
+                value={values.global.growthPct}
+                min={0}
+                step={0.1}
+                required
+                unit="%"
+                onChange={(value) => setValue("global.growthPct", value)}
+              />
+            </FormField>
+          </div>
+        ) : null}
+
+        {step.id === "review" ? (
+          <div className="review-panel">
+            <p className="question-help">
+              Check your answers before requesting final prices. The browser selects
+              nearby lower- and higher-cost models from the catalog, and the backend
+              calculates every option using these same assumptions.
+            </p>
+            <dl className="review-list">
+              <ReviewRow
+                label="AI model"
+                value={selectedModel?.name || "Not selected"}
+                step={0}
+                onEdit={setCurrentStep}
+              />
+              <ReviewRow
+                label="Business document search"
+                value={values.rag.enabled ? "Included" : "Not included"}
+                step={1}
+                onEdit={setCurrentStep}
+              />
+              <ReviewRow
+                label="Active people"
+                value={values.openai.users.toLocaleString("en-US")}
+                step={2}
+                onEdit={setCurrentStep}
+              />
+              <ReviewRow
+                label="Daily interactions"
+                value={`${values.openai.requestsPerDay.toLocaleString("en-US")} per person`}
+                step={2}
+                onEdit={setCurrentStep}
+              />
+              <ReviewRow
+                label="Average input"
+                value={`${values.openai.avgPromptTokens.toLocaleString("en-US")} tokens`}
+                step={3}
+                onEdit={setCurrentStep}
+              />
+              <ReviewRow
+                label="Average response"
+                value={`${values.openai.avgCompletionTokens.toLocaleString("en-US")} tokens`}
+                step={3}
+                onEdit={setCurrentStep}
+              />
+              <ReviewRow
+                label="RAG document context"
+                value={
+                  values.rag.enabled
+                    ? `${values.rag.avgDocTokens.toLocaleString("en-US")} tokens per interaction`
+                    : "Not used"
+                }
+                step={3}
+                onEdit={setCurrentStep}
+              />
+              <ReviewRow
+                label="RAG document storage"
+                value={
+                  values.rag.enabled
+                    ? `${values.storage.docStorageGB.toLocaleString("en-US")} GB`
+                    : "Not used"
+                }
+                step={3}
+                onEdit={setCurrentStep}
+              />
+              <ReviewRow
+                label="App hosting"
+                value={values.compute.enabled ? "Basic B1 included" : "Not included"}
+                step={4}
+                onEdit={setCurrentStep}
+              />
+              <ReviewRow
+                label="Expected growth"
+                value={`${values.global.growthPct.toLocaleString("en-US")}% per month`}
+                step={4}
+                onEdit={setCurrentStep}
+              />
+            </dl>
+          </div>
+        ) : null}
+      </section>
+
+      <div className="wizard-save-status" role="status">
+        Answers are saved automatically in this browser.
+      </div>
+
+      <div className="wizard-actions">
+        <div>
+          {currentStep > 0 ? (
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={status === "loading"}
+              onClick={() => setCurrentStep(currentStep - 1)}
+            >
+              Back
+            </button>
+          ) : null}
+          {isReviewStep ? (
+            <button
+              type="button"
+              className="text-button"
+              disabled={status === "loading"}
+              onClick={handleStartOver}
+            >
+              Start over
+            </button>
+          ) : null}
+        </div>
+        <button
+          type="submit"
+          className="primary-button primary-button--compact"
+          disabled={status === "loading" || modelStepBlocked || reviewStepBlocked}
+        >
+          {status === "loading"
+            ? "Comparing…"
+            : isReviewStep
+              ? "Compare option costs"
+              : "Continue"}
+        </button>
+      </div>
     </form>
   );
 }

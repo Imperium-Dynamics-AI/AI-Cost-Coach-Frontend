@@ -1,0 +1,118 @@
+# Azure AI Cost Coach — Backend API
+
+This backend service powers the **Azure AI Cost Coach**. It fetches live retail pricing data from the official Azure Retail Prices API, caches it locally in SQLite, and provides REST endpoints for model rates and scenario calculation estimates for Azure AI deployments.
+
+---
+
+## Architecture & Features
+
+* **PDM Dependency Management (`pyproject.toml` & `pdm.lock`)**: Modern PEP 621 Python package and dependency management.
+* **Modular Directory Architecture**: Structured into clean `src/` modules (`config`, `core`, `models`, `schemas`, `services`, `api`) with single-responsibility files under 50–80 lines each.
+* **Multi-Model Azure Pricing Sync (`src/services/azure_sync.py`)**: Automatically fetches retail rates for **12 popular OpenAI models** (GPT-4o, GPT-4o mini, GPT-4.1, GPT-4.1 mini, GPT-4.1 nano, GPT-4 Turbo, GPT-3.5 Turbo, o1, o1 mini, o3, o3 mini, o4-mini) plus infrastructure (AI Search, Blob Storage, App Service).
+* **Model Catalog Endpoint (`GET /api/v1/models`)**: Returns input/output prices per 1K tokens + infrastructure rates in a single response, enabling dynamic client-side calculations in the React frontend.
+* **SQLite Cache Database (`src/core/database.py`)**: Stores pricing data locally with zero configuration to ensure fast response times and zero external API dependencies during cost estimations.
+* **Background Auto-Refresh**: Uses `AsyncIOScheduler` to refresh price caches every 24 hours.
+* **Cost Calculation Engine (`src/services/calculator.py`)**: Implements formula calculations for token costs (including RAG document prompt context injection), AI Search hosting, storage growth, and App Service compute toggles. Calculates one or more caller-supplied scenarios and returns their breakdowns plus the cheapest supplied scenario.
+* **Docker Containerization**: Includes production `Dockerfile` and `.dockerignore` configured with PDM.
+
+---
+
+## Technical Stack
+
+* **PDM**: Modern Python package & dependency manager (using `pyproject.toml` and deterministic `pdm.lock`).
+* **FastAPI**: High-performance Python web framework.
+* **Pydantic v2 & SQLModel**: Data validation, request/response contracts, and SQLite ORM.
+* **SQLite**: Embedded database for caching Azure retail rates.
+* **APScheduler**: Asynchronous background scheduler for periodic price refreshes.
+* **HTTPX**: Async HTTP client for Azure Retail Prices API integration.
+* **Uvicorn**: ASGI server implementation.
+
+---
+
+## Setup and Running Locally (with PDM)
+
+### 1. Install PDM (if not already installed)
+```bash
+pip install pdm
+```
+
+### 2. Install Project Dependencies
+Navigate to the `backend/` directory and install locked dependencies:
+```powershell
+cd backend
+pdm install
+```
+
+### 3. Run the Development Server
+```powershell
+pdm run uvicorn src.main:app --reload
+```
+The server runs on **`http://127.0.0.1:8000`**.
+
+---
+
+## Docker Containerization
+
+### Build Image Locally
+```powershell
+docker build -t ai-cost-coach-backend:v1 ./backend
+```
+
+### Run Container Locally
+```powershell
+docker run -d -p 8000:8000 --name backend-app ai-cost-coach-backend:v1
+```
+
+---
+
+## API Endpoints
+
+Interactive Swagger API Documentation: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/v1/models` | **OpenAI Model Catalog & Prices** — Primary endpoint for frontend dynamic calculations |
+| `POST` | `/api/v1/cost-estimates` | **Cost Calculation Engine** — Computes monthly/annual costs for caller-supplied scenarios and identifies the cheapest |
+| `GET` | `/health` | System health check, cached SKU counts, and cache age monitoring |
+| `GET` | `/prices` | Fetch all cached Azure price records |
+| `GET` | `/prices/by-service/{service_name}` | Filter cached prices by service (e.g. `/prices/by-service/openai`) |
+| `GET` | `/prices/{sku_key}` | Look up a specific SKU price by key (e.g. `/prices/gpt-4o-input`) |
+
+---
+
+## Directory Structure
+
+```
+backend/
+├── pyproject.toml              # PDM project metadata & dependency declarations
+├── pdm.lock                    # Deterministic PDM lockfile
+├── Dockerfile                  # Container build recipe using PDM
+├── .dockerignore               # Files excluded from container build
+├── README.md                   # Documentation & setup guide
+└── src/
+    ├── main.py                 # FastAPI application entrypoint and lifecycle
+    ├── config/
+    │   └── settings.py         # Application configuration & API settings
+    ├── core/
+    │   ├── database.py         # SQLite engine & init_db helper
+    │   ├── dependencies.py     # FastAPI session dependency injection provider
+    │   └── exceptions.py       # Custom 422 API contract validation error handler
+    ├── models/
+    │   └── price_cache.py      # SQLModel ORM definition for AzurePriceCache table
+    ├── schemas/
+    │   └── cost_estimate.py    # Pydantic request, response, and error schemas
+    ├── services/
+    │   ├── azure_sync.py       # Azure Retail Prices API sync & background scheduler
+    │   ├── constants.py        # Shared monthly time constants
+    │   ├── sku_manifest.py     # Model and infrastructure SKU definitions
+    │   ├── price_loader.py     # Isolated cached-price reads
+    │   ├── scenario_calculator.py # Per-scenario cost formulas
+    │   └── calculator.py       # Multi-scenario calculation orchestration
+    └── api/
+        ├── router.py           # Main APIRouter combining all domain routers
+        └── v1/
+            ├── health.py       # GET /health monitoring endpoint
+            ├── prices.py       # GET /prices raw cache lookup endpoints
+            ├── models.py       # GET /api/v1/models catalog endpoint
+            └── estimates.py    # POST /api/v1/cost-estimates endpoint
+```

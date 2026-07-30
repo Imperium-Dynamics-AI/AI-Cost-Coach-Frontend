@@ -6,6 +6,7 @@ export function NumberInput({
   min = 0,
   max,
   step = 1,
+  required = false,
   unit,
   prefix,
 }) {
@@ -20,6 +21,7 @@ export function NumberInput({
         min={min}
         max={max}
         step={step}
+        required={required}
         inputMode="decimal"
         onChange={(event) =>
           onChange(event.target.value === "" ? 0 : Number(event.target.value))

@@ -1,36 +1,65 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { CalculatorForm } from "./components/CalculatorForm";
 import { EstimateResults } from "./components/EstimateResults";
-import { USING_PLACEHOLDER_API } from "./api/costEstimateApi";
+import { USING_PLACEHOLDER_API } from "./api/modelComparisonApi";
 import { useCalculatorForm } from "./hooks/useCalculatorForm";
-import { useCostEstimate } from "./hooks/useCostEstimate";
-import { buildEstimatePayload } from "./utils/buildEstimatePayload";
-import { getScenarios } from "./config/calculatorConfig";
+import { useModelComparisons } from "./hooks/useModelComparisons";
+import { useModelCatalog } from "./hooks/useModelCatalog";
+import { buildModelComparisonPayload } from "./utils/buildModelComparisonPayload";
+import { calculateLocalEstimate } from "./utils/calculateLocalEstimate";
+
+const EMPTY_MODELS = [];
 
 export function CostEstimatorPage() {
-  const [activeTab, setActiveTab] = useState("A");
-  const { values, setValue, toggleResource, hasSelectedResource } = useCalculatorForm();
-  const { status, result, error, calculate, reset } = useCostEstimate();
-  const scenarios = getScenarios(values.openai.model);
+  const [activeComparisonId, setActiveComparisonId] = useState(null);
+  const {
+    values,
+    currentStep,
+    draftRestored,
+    setValue,
+    setCurrentStep,
+    resetForm,
+  } = useCalculatorForm();
+  const { status, result, error, compare, reportError, reset } = useModelComparisons();
+  const {
+    status: catalogStatus,
+    catalog,
+    error: catalogError,
+    reload: reloadCatalog,
+  } = useModelCatalog();
+  const models = catalog?.models ?? EMPTY_MODELS;
+  const liveEstimate = useMemo(
+    () => calculateLocalEstimate(values, catalog),
+    [catalog, values],
+  );
 
-  const handleValueChange = (path, value) => {
-    setValue(path, value);
-    reset();
-  };
-
-  const handleResourceToggle = (resourceKey) => {
-    toggleResource(resourceKey);
-    reset();
-  };
-
-  const handleSubmit = (event) => {
-    event.preventDefault();
-
-    if (!hasSelectedResource) {
+  useEffect(() => {
+    if (status !== "success" || !result?.comparisons?.length) {
       return;
     }
 
-    calculate(buildEstimatePayload(values));
+    setActiveComparisonId(result.comparisons[0].id);
+  }, [result, status]);
+
+  const handleValueChange = (path, value) => {
+    setValue(path, value);
+    setActiveComparisonId(null);
+    reset();
+  };
+
+  const handleSubmit = () => {
+    setActiveComparisonId(null);
+    try {
+      compare(buildModelComparisonPayload(values, models, catalog));
+    } catch (submissionError) {
+      reportError(submissionError);
+    }
+  };
+
+  const handleReset = () => {
+    resetForm();
+    setActiveComparisonId(null);
+    reset();
   };
 
   return (
@@ -39,10 +68,10 @@ export function CostEstimatorPage() {
         <header className="page-header">
           <div>
             <span className="page-header__kicker">Azure planning tool</span>
-            <h1>Plan your AI solution budget</h1>
+            <h1>Build your AI cost estimate</h1>
             <p>
-              Describe how people will use your solution. We’ll compare three Azure AI
-              approaches and show where the monthly cost comes from.
+              Answer a few business questions and we’ll turn your choices into a clear
+              Azure AI cost estimate.
             </p>
           </div>
           <div className="page-header__badge" aria-label="All estimates are in US dollars">
@@ -59,7 +88,8 @@ export function CostEstimatorPage() {
             </svg>
             <p>
               <strong>Preview mode:</strong> you can review and submit every input now.
-              Cost values will populate when the pricing service is connected.
+              Live values use sample prices; final comparison costs require the real
+              pricing service.
             </p>
           </div>
         ) : null}
@@ -68,20 +98,29 @@ export function CostEstimatorPage() {
           <CalculatorForm
             values={values}
             setValue={handleValueChange}
-            toggleResource={handleResourceToggle}
-            hasSelectedResource={hasSelectedResource}
+            currentStep={currentStep}
+            setCurrentStep={setCurrentStep}
+            draftRestored={draftRestored}
             onSubmit={handleSubmit}
+            onReset={handleReset}
             status={status}
+            models={models}
+            catalogStatus={catalogStatus}
+            catalogError={catalogError}
+            catalogCurrency={catalog?.currency}
+            catalogRegion={catalog?.region}
+            onReloadCatalog={reloadCatalog}
           />
           <EstimateResults
             status={status}
             result={result}
             error={error}
-            scenarios={scenarios}
-            activeTab={activeTab}
-            onTabChange={setActiveTab}
-            resources={values.resources}
+            activeComparisonId={activeComparisonId}
+            onComparisonChange={setActiveComparisonId}
             growthPct={values.global.growthPct}
+            liveEstimate={liveEstimate}
+            catalogStatus={catalogStatus}
+            catalogError={catalogError}
           />
         </div>
 

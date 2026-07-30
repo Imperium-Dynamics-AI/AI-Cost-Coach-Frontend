@@ -41,3 +41,13 @@ yarn-error.log*
 tmp/
 temp/
 coverage/
+
+# Database files
+*.db
+
+# PDM
+.pdm-build/
+__pypackages__/
+.pdm-python
+
+*.tar

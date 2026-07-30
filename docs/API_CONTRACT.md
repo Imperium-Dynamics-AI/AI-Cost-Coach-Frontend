@@ -1,130 +1,217 @@
-# Cost estimate API contract
+# Frontend API contract
 
-This is the hand-off contract for the future backend. The frontend endpoint is configured by `VITE_API_BASE_URL` and defaults to the same origin.
+The frontend uses the existing model catalog and cost-estimate endpoints for live and
+final comparisons. The frontend base URL is configured with `VITE_API_BASE_URL`.
 
-## Endpoint
+## Model catalog and live estimate
 
-`POST /api/v1/cost-estimates`
+When the questionnaire opens, the frontend requests:
 
-Request headers:
+`GET /api/v1/models`
 
-```http
-Content-Type: application/json
+```json
+{
+  "region": "eastus",
+  "currency": "USD",
+  "models": [
+    {
+      "id": "gpt-4.1",
+      "name": "GPT-4.1",
+      "inputPer1K": 0.002,
+      "outputPer1K": 0.008
+    }
+  ],
+  "infrastructure": {
+    "aiSearchBasicPerHour": 0.14,
+    "blobStoragePerGB": 0.02,
+    "appServiceB1PerHour": 0.075
+  }
+}
 ```
 
-## Request
+The model ID is the stable form value. The returned names and prices are display and
+live-calculation data. Models without both token prices remain visible but cannot be
+selected.
 
-The request contains the selected resources, the three comparison scenarios, and the assumptions collected in the form.
+After a model is selected, the browser recalculates only that setup whenever an answer
+changes. It does not generate comparison scenarios or send questionnaire data until the
+final review action.
+
+## Model comparison (implemented via the existing cost-estimates endpoint)
+
+`POST /api/v1/model-comparisons` was never implemented on the backend and is not used.
+Instead, the final review action builds comparisons client-side and prices them through
+the existing `POST /api/v1/cost-estimates` endpoint:
+
+1. The frontend ranks every fully-priced catalog model (from `GET /api/v1/models`) by
+   model-token cost for the exact usage entered in the questionnaire (`src/features/
+   cost-estimator/utils/pickComparisonModels.js`). Shared infrastructure costs do not
+   affect the ordering.
+2. It picks the selected model plus its nearest strictly lower- and higher-cost neighbor
+   (whichever exist). Equal-cost entries are not mislabeled as cheaper or pricier.
+3. It sends one `POST /api/v1/cost-estimates` request with one scenario per model —
+   `{ id, model, forceRag }` — where every scenario shares identical deployment
+   assumptions (users, tokens, RAG, compute, growth). Only the model differs.
+4. The response's `scenarios` map is joined back with frontend-generated model metadata,
+   labels, relationships, and reasons to create the `comparisons[]` view model rendered
+   by the UI.
+
+No model-family or capability logic lives on the backend; "related models" means
+"the nearest-priced neighbors for this exact usage," which is something the frontend
+already has all the data to compute deterministically.
+
+### Request
 
 ```json
 {
   "resources": {
-    "openai": true,
-    "rag": true,
-    "storage": false,
-    "compute": false,
-    "apim": false,
-    "monitoring": false,
-    "identity": false,
-    "finetuning": false
+    "compute": true
   },
   "scenarios": [
-    { "id": "A", "model": "GPT-4o", "forceRag": false },
-    { "id": "B", "model": "GPT-4.1", "forceRag": false },
-    { "id": "C", "model": "GPT-4o", "forceRag": true }
+    {
+      "id": "selected",
+      "model": "GPT-4.1",
+      "forceRag": true
+    },
+    {
+      "id": "cheaper",
+      "model": "GPT-4.1 mini",
+      "forceRag": true
+    },
+    {
+      "id": "pricier",
+      "model": "GPT-4o",
+      "forceRag": true
+    }
   ],
   "openai": {
-    "model": "GPT-4o",
-    "billingMode": "payg",
-    "regionType": "global",
     "users": 500,
     "requestsPerDay": 5,
     "avgPromptTokens": 800,
-    "avgCompletionTokens": 400,
-    "historyTurns": 1,
-    "systemOverheadTokens": 300,
-    "maxTokensCap": 0,
-    "ptu": { "count": 15, "commitment": "annual", "scope": "global" },
-    "batch": { "percentEligible": 30 }
+    "avgCompletionTokens": 400
   },
   "rag": {
-    "embeddingModel": "small",
-    "numDocuments": 2000,
-    "avgDocTokens": 600,
-    "chunkSize": 300,
-    "reindexFreq": "onetime",
-    "vectorQueriesPerDay": 200,
-    "searchTier": "basic",
-    "replicaCount": 1
+    "avgDocTokens": 600
   },
   "storage": {
-    "docStorageGB": 5,
-    "storageGrowthPct": 5,
-    "vectorStorageGB": 2,
-    "sqlTier": "standard"
+    "docStorageGB": 5
   },
-  "compute": {
-    "appServiceTier": "basic",
-    "functionsPlan": "consumption",
-    "environments": { "dev": true, "test": false, "prod": true }
-  },
-  "apim": { "apimTier": "developer" },
-  "monitoring": { "logGB": 10, "retentionDays": 30 },
-  "identity": {
-    "entraTier": "free",
-    "licensedUsers": 500,
-    "keyVaultIncluded": true
-  },
-  "finetuning": { "hostingOn": false, "trainingCost": 0 },
-  "global": { "retryOverheadPct": 10, "growthPct": 10, "infraOverheadUsd": 40 }
+  "global": {
+    "growthPct": 10
+  }
 }
 ```
 
-## Successful response
+Scenario IDs, model names, and `forceRag` are generated from the catalog by the frontend.
+The `openai`, `rag`, `storage`, `resources`, and `global` assumptions apply equally to
+every scenario; only the model changes. When RAG is disabled, the frontend sends zero for
+the unused RAG token and storage inputs.
 
-All monetary values are numbers in the declared currency. A resource cost may be `null` only when the backend cannot price it; the backend should include a warning in that case.
+The request deliberately contains no:
+
+- Catalog prices
+- Browser-calculated totals
+- Browser-only comparison labels, relationships, or reasons
+
+The frontend owns comparison selection, scenario order, labels, relationships, and
+reasons. The backend calculates every supplied scenario and identifies the cheapest
+scenario for which a complete monthly total is available.
+
+### Successful response
 
 ```json
 {
   "currency": "USD",
   "totalMonthlyRequests": 75000,
-  "cheapestId": "A",
+  "cheapestId": "cheaper",
   "warnings": [],
   "scenarios": {
-    "A": {
-      "name": "GPT-4o",
+    "selected": {
+      "name": "GPT-4.1 + your content",
       "breakdown": {
-        "openai": 120.5,
-        "rag": 0,
-        "storage": 0,
-        "compute": 0,
+        "openai": 450,
+        "rag": 102.2,
+        "storage": 0.1,
+        "compute": 54.75,
         "apim": 0,
         "monitoring": 0,
         "identity": 0,
         "finetuning": 0
       },
-      "monthlyTotal": 120.5,
-      "annualTotal": 1446,
-      "costPerUser": 0.241,
-      "costPerConversation": 0.0016,
-      "nextMonthProjected": 132.55
+      "monthlyTotal": 607.05,
+      "annualTotal": 12981.33,
+      "costPerUser": 1.2141,
+      "costPerConversation": 0.0081,
+      "nextMonthProjected": 667.76
+    },
+    "cheaper": {
+      "name": "GPT-4.1 mini + your content",
+      "breakdown": {
+        "openai": 90,
+        "rag": 102.2,
+        "storage": 0.1,
+        "compute": 54.75,
+        "apim": 0,
+        "monitoring": 0,
+        "identity": 0,
+        "finetuning": 0
+      },
+      "monthlyTotal": 247.05,
+      "annualTotal": 5282.99,
+      "costPerUser": 0.4941,
+      "costPerConversation": 0.0033,
+      "nextMonthProjected": 271.76
+    },
+    "pricier": {
+      "name": "GPT-4o + your content",
+      "breakdown": {
+        "openai": 975,
+        "rag": 102.2,
+        "storage": 0.1,
+        "compute": 54.75,
+        "apim": 0,
+        "monitoring": 0,
+        "identity": 0,
+        "finetuning": 0
+      },
+      "monthlyTotal": 1132.05,
+      "annualTotal": 24208.08,
+      "costPerUser": 2.2641,
+      "costPerConversation": 0.0151,
+      "nextMonthProjected": 1245.26
     }
   }
 }
 ```
 
-The response must contain entries for scenario IDs `A`, `B`, and `C`, even when one cannot be priced.
+Response requirements:
 
-## Error response
+- `scenarios` is keyed by the frontend-generated scenario IDs.
+- `cheapestId` is `null` or references one returned scenario.
+- Costs may be `null` when required pricing is unavailable. Any returned warnings are
+  displayed with the comparison results.
+- The frontend joins each returned scenario with its browser-only model metadata and
+  renders the comparisons in the original scenario order.
+- If the final backend totals differ from the catalog ranking, the frontend updates the
+  displayed lower-cost, higher-cost, or same-cost label to match the final totals.
 
-Use an appropriate HTTP status and a stable error shape:
+### Error response
 
 ```json
 {
   "code": "INVALID_ESTIMATE_INPUT",
   "message": "One or more assumptions are invalid.",
   "fieldErrors": {
-    "openai.users": "Must be zero or greater."
+    "openai.users": "Input should be greater than or equal to 1"
   }
 }
 ```
+
+The frontend displays string `message`/`detail` errors and also supports the standard
+FastAPI validation `detail` array.
+
+## Draft storage
+
+Questionnaire answers and the current step are stored under
+`azure-cost-coach:estimate-draft:v2`. The draft is not sent anywhere until the user
+selects **Compare option costs**. API results, credentials, and secrets are not persisted.
