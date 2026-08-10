@@ -42,3 +42,16 @@ app = FastAPI(title="Azure Pricing Cache API", version="2.0.0", lifespan=lifespa
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
 app.include_router(api_router)
+
+
+@app.get("/")
+def root():
+    """Root endpoint welcoming users and directing them to interactive API docs."""
+    return {
+        "message": "Azure AI Cost Coach API v2.0 is running!",
+        "documentation": "http://127.0.0.1:8000/docs",
+        "health_check": "http://127.0.0.1:8000/health",
+        "inventory": "http://127.0.0.1:8000/api/v1/inventory",
+        "inventory_summary": "http://127.0.0.1:8000/api/v1/inventory/summary",
+    }
+
