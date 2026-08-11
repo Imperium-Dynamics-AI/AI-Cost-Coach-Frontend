@@ -17,6 +17,7 @@ from azure.mgmt.resourcegraph.models import QueryRequest, QueryRequestOptions, R
 from src.config.settings import AZURE_DEFAULT_SUBSCRIPTIONS, REQUEST_TIMEOUT_SECONDS
 from src.models.resource import ResourceInventory
 from src.models.scan import ScanSnapshot
+from src.services.enrichers import EnricherRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -30,11 +31,8 @@ Resources
 
 class AzureResourceGraphService:
     """
-    Executes Azure Resource Graph queries and stores discovery snapshots.
-
-    Usage:
-        service = AzureResourceGraphService(session)
-        scan = await service.run_scan(subscription_ids=["371086a7-..."])
+    Executes Azure Resource Graph queries, performs deep ARM enrichment,
+    and stores discovery snapshots.
     """
 
     MAX_RETRIES = 3
@@ -52,7 +50,7 @@ class AzureResourceGraphService:
     ) -> ScanSnapshot:
         """
         Initiate and execute a full inventory scan for specified subscriptions.
-        If subscription_ids is omitted or empty, defaults to AZURE_DEFAULT_SUBSCRIPTIONS.
+        Runs Discovery (Stage 1) followed by Deep ARM Enrichment (Stage 2).
         """
         target_subs = subscription_ids or AZURE_DEFAULT_SUBSCRIPTIONS
         if not target_subs:
@@ -75,7 +73,7 @@ class AzureResourceGraphService:
         errors: list[str] = []
 
         try:
-            # 2. Query Resource Graph asynchronously
+            # 2. Stage 1: Query Resource Graph asynchronously
             raw_resources = await self._execute_query_with_retry(target_subs)
 
             # 3. Parse and persist discovered resources
@@ -115,21 +113,48 @@ class AzureResourceGraphService:
                 resource_records.append(record)
                 self._session.add(record)
 
-            # 4. Update scan snapshot to completed
+            self._session.commit()
+
+            # 4. Stage 2: Deep ARM Enrichment for supported core resource types
+            scan.status = "enriching"
+            scan.stages = json.dumps({"discovery": "completed", "enrichment": "in_progress", "pricing": "pending"})
+            self._session.add(scan)
+            self._session.commit()
+
+            enriched_count = 0
+            for record in resource_records:
+                if EnricherRegistry.is_supported(record.resource_type):
+                    enricher = EnricherRegistry.get_enricher(record.resource_type)
+                    if enricher:
+                        try:
+                            enrichment_dict = await enricher.enrich(record, self._credential)
+                            record.enrichment_data = json.dumps(enrichment_dict)
+                            record.enriched_at = datetime.now(timezone.utc)
+                            self._session.add(record)
+                            if enrichment_dict.get("enrichment_status") == "succeeded":
+                                enriched_count += 1
+                        except Exception as e_err:
+                            logger.warning("Enrichment error for %s: %s", record.name, e_err)
+
+            # 5. Complete scan snapshot
             end_time = datetime.now(timezone.utc)
             duration = (end_time - start_time).total_seconds()
 
             scan.status = "completed"
             scan.total_resources = len(resource_records)
+            scan.resources_enriched = enriched_count
             scan.resource_types_found = json.dumps(sorted(list(distinct_types)))
-            scan.stages = json.dumps({"discovery": "completed", "enrichment": "pending", "pricing": "pending"})
+            scan.stages = json.dumps({"discovery": "completed", "enrichment": "completed", "pricing": "pending"})
             scan.completed_at = end_time
             scan.duration_seconds = round(duration, 2)
 
             self._session.add(scan)
             self._session.commit()
             self._session.refresh(scan)
-            logger.info("Scan %s completed: %d resources found across %d subscriptions.", scan.id, len(resource_records), len(target_subs))
+            logger.info(
+                "Scan %s completed: %d resources found, %d enriched across %d subscriptions.",
+                scan.id, len(resource_records), enriched_count, len(target_subs)
+            )
             return scan
 
         except Exception as err:
