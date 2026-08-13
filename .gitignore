@@ -11,18 +11,6 @@ frontend/.vite/
 !.env.example
 !frontend/.env.example
 
-# Python/backend artifacts
-__pycache__/
-*.py[codz]
-*.egg-info/
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-.coverage
-htmlcov/
-.venv/
-venv/
-
 # Editors and operating systems
 .idea/
 .vscode/
@@ -30,24 +18,14 @@ venv/
 Thumbs.db
 *.swp
 *.swo
-*.db
+
 # Logs
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Temporary files
+# Temporary files and coverage
 tmp/
 temp/
 coverage/
-
-# Database files
-*.db
-
-# PDM
-.pdm-build/
-__pypackages__/
-.pdm-python
-
-*.tar
