@@ -136,7 +136,20 @@ class AzureResourceGraphService:
                         except Exception as e_err:
                             logger.warning("Enrichment error for %s: %s", record.name, e_err)
 
-            # 5. Complete scan snapshot
+            # 5. Stage 3: Auto-Pricing for discovered resource SKUs and regions
+            scan.status = "pricing"
+            scan.stages = json.dumps({"discovery": "completed", "enrichment": "completed", "pricing": "in_progress"})
+            self._session.add(scan)
+            self._session.commit()
+
+            try:
+                from src.services.pricing_engine import PricingEngine
+                pricing_engine = PricingEngine(self._session)
+                await pricing_engine.auto_price_scan_inventory(scan.id)
+            except Exception as p_err:
+                logger.warning("Auto-pricing stage warning for scan %s: %s", scan.id, p_err)
+
+            # 6. Complete scan snapshot
             end_time = datetime.now(timezone.utc)
             duration = (end_time - start_time).total_seconds()
 
@@ -144,7 +157,7 @@ class AzureResourceGraphService:
             scan.total_resources = len(resource_records)
             scan.resources_enriched = enriched_count
             scan.resource_types_found = json.dumps(sorted(list(distinct_types)))
-            scan.stages = json.dumps({"discovery": "completed", "enrichment": "completed", "pricing": "pending"})
+            scan.stages = json.dumps({"discovery": "completed", "enrichment": "completed", "pricing": "completed"})
             scan.completed_at = end_time
             scan.duration_seconds = round(duration, 2)
 
