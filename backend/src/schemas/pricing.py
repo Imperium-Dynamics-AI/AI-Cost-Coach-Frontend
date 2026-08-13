@@ -8,8 +8,10 @@ from pydantic import BaseModel, Field
 
 
 class PriceQueryRequest(BaseModel):
-    product_name: Optional[str] = Field(default=None, description="e.g. 'Azure OpenAI', 'Storage'")
-    sku_name: Optional[str] = Field(default=None, description="e.g. 'gpt 4o 0513 Input regional'")
+    product_name: Optional[str] = Field(default=None, description="e.g. 'Azure OpenAI', 'Blob Storage'")
+    service_name: Optional[str] = Field(default=None, description="e.g. 'Azure App Service', 'Storage'")
+    sku_name: Optional[str] = Field(default=None, description="e.g. 'B1', 'Hot LRS'")
+    meter_name: Optional[str] = Field(default=None, description="e.g. 'B1', 'Hot LRS Data Stored'")
     region: Optional[str] = Field(default="eastus", description="ARM region name")
     currency: Optional[str] = Field(default="USD", description="Currency code")
     billing_term: Optional[str] = Field(default=None, description="e.g. 'Consumption', '1 Year Reserved'")
