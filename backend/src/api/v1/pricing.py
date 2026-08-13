@@ -27,7 +27,9 @@ async def query_pricing(
     engine = PricingEngine(session)
     records = await engine.query_prices(
         product_name=request.product_name,
+        service_name=request.service_name,
         sku_name=request.sku_name,
+        meter_name=request.meter_name,
         region=request.region,
         currency=request.currency,
         billing_term=request.billing_term,
