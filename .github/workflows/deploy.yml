@@ -1,0 +1,82 @@
+name: Deploy
+
+# dev -> dev, test -> staging, main -> prod, matching the backend repo.
+on:
+  push:
+    branches: [dev, test, main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write   # OIDC federated credential exchange
+  contents: read
+
+jobs:
+  deploy:
+    name: Build and deploy
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'prod' || github.ref_name == 'test' && 'staging' || 'dev' }}
+    concurrency:
+      group: deploy-${{ github.ref_name }}
+      cancel-in-progress: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      # VITE_ variables are inlined into the bundle at build time, not read at runtime,
+      # so the backend URL has to be correct here — changing it later needs a rebuild,
+      # not a restart. Each GitHub Environment supplies its own value.
+      - name: Build
+        working-directory: frontend
+        env:
+          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
+          VITE_USE_MOCK_API: 'false'
+        run: |
+          if [ -z "$VITE_API_BASE_URL" ]; then
+            echo "::error::VITE_API_BASE_URL is not set for this environment. The build would ship a frontend that cannot reach the API."
+            exit 1
+          fi
+          npm run build
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      # Fetched per run rather than stored as a GitHub secret, so there is no
+      # long-lived deployment token to rotate or leak. add-mask keeps it out of the log
+      # even if a later step echoes it.
+      - name: Fetch Static Web App deployment token
+        id: swa
+        run: |
+          token=$(az staticwebapp secrets list \
+            --name "${{ vars.AZURE_SWA_NAME }}" \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --query "properties.apiKey" -o tsv)
+          if [ -z "$token" ]; then
+            echo "::error::Could not read the deployment token for ${{ vars.AZURE_SWA_NAME }}."
+            exit 1
+          fi
+          echo "::add-mask::$token"
+          echo "token=$token" >> "$GITHUB_OUTPUT"
+
+      # skip_app_build: the bundle was already built above with the right environment
+      # variables. Letting the action rebuild would discard them.
+      - name: Upload to Static Web Apps
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ steps.swa.outputs.token }}
+          action: upload
+          app_location: frontend/dist
+          skip_app_build: true
+          skip_api_build: true
