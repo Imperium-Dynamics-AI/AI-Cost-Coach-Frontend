@@ -69,6 +69,32 @@ When mock mode is disabled, the frontend expects these backend operations:
 
 Backend setup, API implementation, and server commands belong to the [backend repository](https://github.com/Imperium-Dynamics-AI/AI-Cost-Coach-Backend).
 
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on every pull request into `dev`, `test`, or `main`, and
+on the push that lands there: `npm ci`, then lint, tests, and a production build. The
+build step is part of CI because it catches broken imports that lint and unit tests miss.
+
 ## Deployment
 
-GitHub Actions deploys `frontend/` to Azure Static Web Apps. Configure the repository variable `VITE_API_BASE_URL` with the deployed backend URL and keep the Azure deployment token in the repository secret expected by the deployment workflow.
+`.github/workflows/deploy.yml` deploys `frontend/dist` to Azure Static Web Apps on every
+push to a promotion branch:
+
+| Branch | Environment |
+|---|---|
+| `dev` | dev |
+| `test` | staging |
+| `main` | prod |
+
+Authentication is OIDC — there is no Azure secret in this repository. The Static Web App
+deployment token is read at deploy time with `az staticwebapp secrets list` and masked in
+the log, so there is no long-lived token to rotate or leak.
+
+Each GitHub Environment supplies its own variables: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`,
+`AZURE_SUBSCRIPTION_ID`, `AZURE_RESOURCE_GROUP`, `AZURE_SWA_NAME`, and
+`VITE_API_BASE_URL`. They are created by `infra/scripts/setup-app-cicd.ps1` in the infra
+repository.
+
+`VITE_API_BASE_URL` is inlined into the bundle at build time rather than read at runtime,
+so changing it requires a new build, not a restart. The deploy fails fast if it is unset,
+rather than shipping a frontend that cannot reach its API.
