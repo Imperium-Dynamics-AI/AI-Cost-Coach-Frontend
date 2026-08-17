@@ -24,4 +24,13 @@ export default defineConfig([
       "react/jsx-uses-vars": "error",
     },
   },
+  {
+    // Tests run under `node --test`, not in a browser. Without this they inherit the
+    // browser globals above, so the first test to reach for `process` or `Buffer`
+    // fails no-undef for a reason that has nothing to do with the code under test.
+    files: ["**/*.test.js"],
+    languageOptions: {
+      globals: globals.node,
+    },
+  },
 ]);
